@@ -1,8 +1,8 @@
 type t =
-  { mutable locked : bool;
-    mutable locked_ext : bool;
-    mutable failed : bool;
-    mutable stopped : bool;
+  { locked : bool Atomic.t;
+    locked_ext : bool Atomic.t;
+    failed : bool Atomic.t;
+    stopped : bool Atomic.t;
     report_exn : exn -> unit;
     trace : Trace.Writer.t;
     ext_sampler : Geometric_sampler.t; }
@@ -17,36 +17,36 @@ let draw_sampler_bytes t =
   Geometric_sampler.draw t.ext_sampler * (Sys.word_size / 8)
 
 let[@inline never] rec lock_tracer s =
-  if s.locked then
-    if s.locked_ext then false
+  if Atomic.get s.locked then
+    if Atomic.get s.locked_ext then false
     else (Thread.yield (); lock_tracer s)
-  else if s.failed then
+  else if Atomic.get s.failed then
     false
   else
-    (s.locked <- true; true)
+    (Atomic.set (s.locked) true; true)
 
 let[@inline never] rec lock_tracer_ext s =
-  if s.locked then
+  if Atomic.get s.locked then
     (Thread.yield (); lock_tracer_ext s)
-  else if s.failed then
+  else if Atomic.get s.failed then
     false
   else
-    (s.locked <- true; s.locked_ext <- true; true)
+    (Atomic.set s.locked true; Atomic.set s.locked_ext true; true)
 
 let[@inline never] unlock_tracer s =
-  assert (s.locked && not s.locked_ext && not s.failed);
-  s.locked <- false
+  assert (Atomic.get s.locked && not (Atomic.get s.locked_ext) && not (Atomic.get s.failed));
+  Atomic.set s.locked false
 
 let[@inline never] unlock_tracer_ext s =
-  assert (s.locked && s.locked_ext && not s.failed);
-  s.locked_ext <- false;
-  s.locked <- false
+  assert (Atomic.get s.locked && (Atomic.get s.locked_ext) && not (Atomic.get s.failed));
+  Atomic.set s.locked_ext false;
+  Atomic.set s.locked false
 
 let[@inline never] mark_failed s e =
-  assert (s.locked && not s.failed);
-  s.failed <- true;
-  s.locked <- false;
-  s.locked_ext <- false;
+  assert (Atomic.get s.locked && not (Atomic.get s.failed));
+  Atomic.set s.failed true;
+  Atomic.set s.locked false;
+  Atomic.set s.locked_ext false;
   s.report_exn e
 
 let default_report_exn e =
@@ -63,7 +63,7 @@ let default_report_exn e =
 
 let start ?(report_exn=default_report_exn) ~sampling_rate trace =
   let ext_sampler = Geometric_sampler.make ~sampling_rate () in
-  let s = { trace; locked = false; locked_ext = false; stopped = false; failed = false;
+  let s = { trace; locked = Atomic.make false; locked_ext = Atomic.make false; stopped = Atomic.make false; failed = Atomic.make false;
             report_exn; ext_sampler } in
   let tracker : (_,_) Gc.Memprof.tracker = {
     alloc_minor = (fun info ->
@@ -113,8 +113,8 @@ let start ?(report_exn=default_report_exn) ~sampling_rate trace =
   s
 
 let stop s =
-  if not s.stopped then begin
-    s.stopped <- true;
+  if not (Atomic.get s.stopped) then begin
+    Atomic.set s.stopped true;
     Gc.Memprof.stop ();
     if lock_tracer s then begin
       try Trace.Writer.close s.trace with e -> mark_failed s e
