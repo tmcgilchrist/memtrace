@@ -46,8 +46,8 @@ module External : sig
       the object is freed.
 
       This function is very fast in the common case where it returns [None] *)
-  val alloc : bytes:int -> token option
-  val free : token -> unit
+  val alloc : xt:'a Kcas.Xt.t -> bytes:int -> token option
+  val free : xt:'a Kcas.Xt.t -> token -> unit
 end
 
 (** (For testing) *)
