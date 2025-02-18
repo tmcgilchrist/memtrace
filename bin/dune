@@ -1,7 +1,8 @@
 (executables
- (names dump_trace identify subsample hotspots flamegraph)
+ (names dump_trace identify subsample hotspots flamegraph dump_profile)
  (public_names
   memtrace_dump_trace
+  memtrace_dump_profile
   memtrace_identify
   memtrace_subsample
   memtrace_hotspots
