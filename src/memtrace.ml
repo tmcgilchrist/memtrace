@@ -67,6 +67,7 @@ let trace_if_requested ?context ?sampling_rate () =
          | None -> default_sampling_rate
      in
      let _s = start_tracing ~context ~sampling_rate ~filename in
+     let _ = Ctf_to_proto.convert_file filename (filename ^ ".pb") in
      ()
 
 module Trace = Trace
