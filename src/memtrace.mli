@@ -15,6 +15,7 @@ val trace_if_requested : ?context:string -> ?sampling_rate:float -> unit -> unit
 
 (** Tracing can also be manually started and stopped. *)
 type tracer
+val file : string ref
 
 (** Manually start tracing *)
 val start_tracing :
@@ -27,6 +28,8 @@ val start_tracing :
 val stop_tracing : tracer -> unit
 
 val default_sampling_rate : float
+
+val create_pb_file : string -> float -> float -> unit 
 
 (** Use the Trace module to read and write trace files *)
 module Trace = Trace

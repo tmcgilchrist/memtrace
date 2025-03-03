@@ -1,5 +1,9 @@
 type tracer = Memprof_tracer.t
 
+(* maybe there is a better way to do this *)
+let file = ref ""
+let sample_rate = ref 0.0
+
 let getpid64 () = Int64.of_int (Unix.getpid ())
 
 let start_tracing ~context ~sampling_rate ~filename =
@@ -41,8 +45,17 @@ let start_tracing ~context ~sampling_rate ~filename =
 let stop_tracing t =
   Memprof_tracer.stop t
 
+let create_pb_file filename sample_rate time_end = Ctf_to_proto.convert_file filename (filename ^ ".pb") sample_rate time_end
+
+
 let () =
-  at_exit (fun () -> Option.iter stop_tracing (Memprof_tracer.active_tracer ()))
+  at_exit ( 
+    fun () -> 
+      begin
+        Option.iter stop_tracing (Memprof_tracer.active_tracer ()); 
+        create_pb_file !file !sample_rate (Unix.gettimeofday ())
+      end
+  ) (* is this where timeofday should be called ? *) 
 
 let default_sampling_rate = 1e-6
 
@@ -51,6 +64,7 @@ let trace_if_requested ?context ?sampling_rate () =
   | None | Some "" -> ()
   | Some filename ->
      (* Prevent spawned OCaml programs from being traced *)
+     file := filename;
      Unix.putenv "MEMTRACE" "";
      let check_rate = function
        | Some rate when 0. < rate && rate <= 1. -> rate
@@ -66,8 +80,8 @@ let trace_if_requested ?context ?sampling_rate () =
          | Some _ -> check_rate sampling_rate
          | None -> default_sampling_rate
      in
+    sample_rate := sampling_rate;
      let _s = start_tracing ~context ~sampling_rate ~filename in
-     let _ = Ctf_to_proto.convert_file filename (filename ^ ".pb") in
      ()
 
 module Trace = Trace
