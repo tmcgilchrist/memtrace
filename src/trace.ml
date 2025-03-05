@@ -396,8 +396,8 @@ module Event = struct
             let s = backtrace_buffer.(i) in
             match decode_loc s with
             | [] -> Printf.sprintf "$%d" (s :> int)
-            | ls -> String.concat " " (List.map Location.to_string ls))
-        |> String.concat " " in
+            | ls -> String.concat " nextloc " (List.map Location.to_string ls))
+        |> String.concat " nextentryinbb " in
       let alloc_src =
         match source with
         | Minor -> "alloc"
@@ -824,7 +824,7 @@ module Reader = struct
   let lookup_location_code { loc_table; _ } code =
     match Location_code.Tbl.find loc_table code with
     | v -> v
-    | exception Not_found ->
+    | exception Not_found -> 
       raise (Invalid_argument
                (Printf.sprintf "invalid location code %08x" code))
 

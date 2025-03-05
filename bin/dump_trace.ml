@@ -17,8 +17,8 @@ let dump filename =
     for i = 0 to backtrace_length - 1 do
       let s = backtrace_buffer.(i) in
       match Reader.lookup_location_code trace s with
-      | [] -> Printf.printf " $%d" (s :> int)
-      | ls -> ls |> List.iter (Printf.printf " %a" print_location)
+      | [] -> Printf.printf "loc_code: $%d" (s :> int)
+      | ls -> ls |> List.iter (Printf.printf " nextloc %a" print_location)
     done;
     Printf.printf "\n%!"
   | Promote id ->

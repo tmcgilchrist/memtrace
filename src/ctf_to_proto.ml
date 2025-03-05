@@ -1,6 +1,28 @@
 open Profile
 open Trace
 
+(* using dummy info for now, as we dont have mapping information *)
+let start_addr = 0x7F00000000L
+let end_addr = 0x7F40000000L
+let offset = 16L
+let curr_addr = ref 0x7F0000000L
+
+let get_next_addr () =
+  curr_addr := Int64.add !curr_addr offset;
+  !curr_addr
+
+(* memtrace sometimes does not have full location info, need to check
+    but for now we use dummy info *)
+let create_dummy_loc id = {
+  id = id;
+  mapping_id = 0L;
+  address = get_next_addr ();
+  line = []; (* maybe we need something here *)
+  is_folded = false;
+}
+
+(* maps location codes to locations *)
+
 
 let loc_map = Hashtbl.create 100 (* maps location_ids to locations *)
 
@@ -19,6 +41,19 @@ let get_or_add_fnid f fun_table =
     | None ->
       fun_table := !fun_table @ [f];
       (Int64.of_int (List.length !fun_table - 1), false)
+
+let create_dummy_mapping reader string_table = {
+  id = 0L;
+  memory_start = start_addr;
+  memory_limit = end_addr;
+  file_offset = offset; (* not sure what this is *)
+  filename = get_or_add_string ((Reader.info reader).executable_name) string_table;
+  build_id = 0L;
+  has_functions = false;
+  has_filenames = false;
+  has_line_numbers = false;
+  has_inline_frames = false
+}
 
 let loc_to_int (loc_code : Location_code.t) = Int64.of_int (loc_code :> int)
 let micro_to_nanoseconds s = Int64.mul s 1000L
@@ -84,7 +119,7 @@ let print_profile profile =
     profile.doc_url
 
 (* for now this is copied from dump trace*)
-let print_ev ev reader = 
+(*let print_ev ev reader = 
   match ev with 
     | Event.Alloc {obj_id; length; nsamples; source; backtrace_buffer; backtrace_length; common_prefix} ->
       let src =
@@ -105,13 +140,14 @@ let print_ev ev reader =
     | Event.Promote id ->
       Printf.printf "%010d promote\n" (id :> int); ()
     | Event.Collect id ->
-      Printf.printf "%010d collect\n" (id :> int); ()
+      Printf.printf "%010d collect\n" (id :> int); ()*)
 
 (* ------------------- *)
 
 (* takes CTF location codes and creates locations *)
-let update_locs reader buf functions locations string_table =
+let update_locs reader buf len functions locations string_table =
   let backtrace_buffer = Array.to_list buf in
+  let truncated_buf = Array.sub buf 0 len in
       
   (* For each location code in the backtrace, 
     create location obj and add this to loc_map *)
@@ -122,9 +158,8 @@ let update_locs reader buf functions locations string_table =
     else 
       (* create lines *)
       let lines = ref [] in
-      let ctf_locs = Reader.lookup_location_code reader loc_code in
-     
       (* each (ctf) location code can map to multiple (ctf) locations due to inlining) *)
+      let ctf_locs = Reader.lookup_location_code reader loc_code in
       List.iter (fun (ctf_loc: Location.t) ->
         (* check if function entry exists *)
         let fn_id = ref Int64.zero in
@@ -139,7 +174,7 @@ let update_locs reader buf functions locations string_table =
               filename = get_or_add_string ctf_loc.filename string_table;
               start_line = Int64.of_int ctf_loc.line;
             }];
-          
+            
         (* Create line info *)
         let line_info = {
           function_id = !fn_id;
@@ -149,20 +184,24 @@ let update_locs reader buf functions locations string_table =
 
         lines := !lines @ [line_info];
       ) ctf_locs;
-     
+
       (* Create and add location *)
-      let loc = {
-        id = Int64.of_int (loc_code :> int);
-        mapping_id = 0L; (* not sure now *)
-        address = 0L;    (* not sure now *)
-        line = !lines;
-        is_folded = false; (* not sure now *)
-      } in
+      let loc = 
+        match ctf_locs with
+        (* not sure why some location_codes map to empty lists, for now create dummy location for these *)
+        | [] -> create_dummy_loc (Int64.of_int (loc_code :> int))
+        | _ -> {
+          id = Int64.of_int (loc_code :> int);
+          mapping_id = 0L; (* some default mapping for now*)
+          address = get_next_addr ();    (* some default addr for now *)
+          line = !lines;
+          is_folded = false; (* not sure now *)
+        } in
       (* add loc to location list and 
         loc_code / loc pair to loc_map *)
       locations := !locations @ [loc];
       Hashtbl.add loc_map loc_code loc;
-    ) buf;
+    ) truncated_buf;
    (List.map loc_to_int backtrace_buffer)
 
 
@@ -189,11 +228,11 @@ let convert_events filename sample_rate time_end =
   Reader.iter reader (fun _ ev ->
     (*  not sure what to do with this time info for now 
     duration := Timedelta.to_int64 time; *)
-    Printf.printf "Convering event: \n";
-    print_ev ev reader;
+    Printf.printf "Converting event: \n";
+    Printf.printf "%s\n" (Event.to_string (Reader.lookup_location_code reader) (ev));
     match ev with
-    | Alloc { length; nsamples; source; backtrace_buffer; _ } -> 
-      let loc_ids = update_locs reader backtrace_buffer functions locations string_table in
+    | Alloc { length; nsamples; source; backtrace_buffer; backtrace_length; _ } -> 
+      let loc_ids = update_locs reader backtrace_buffer backtrace_length functions locations string_table in
       let vals = [Int64.of_int nsamples; Int64.of_int length] in
       (* unsure where else to put this *)
       let str_val = match source with
@@ -213,11 +252,12 @@ let convert_events filename sample_rate time_end =
     | Promote _ -> ()
     | Collect _ -> ()
     );
+  let dummy_mapping = create_dummy_mapping reader string_table in
   Reader.close reader;
   {
     sample_type = sample_types;
     sample = !samples;
-    mapping = [];  (* unsure *)
+    mapping = [dummy_mapping];  (* unsure *)
     location = !locations;
     function_ = !functions; 
     string_table = !string_table;
