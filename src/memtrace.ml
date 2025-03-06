@@ -85,6 +85,7 @@ let trace_if_requested ?context ?sampling_rate () =
      ()
 
 module Trace = Trace
+module Profile = Profile
 module Memprof_tracer = Memprof_tracer
 
 module External = struct

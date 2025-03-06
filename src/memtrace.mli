@@ -33,6 +33,7 @@ val create_pb_file : string -> float -> float -> unit
 
 (** Use the Trace module to read and write trace files *)
 module Trace = Trace
+module Profile = Profile
 
 (** Use Memprof_tracer in conjunction with Trace.Writer for more manual
     control over trace collection *)

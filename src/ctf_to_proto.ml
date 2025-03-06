@@ -21,9 +21,6 @@ let create_dummy_loc id = {
   is_folded = false;
 }
 
-(* maps location codes to locations *)
-
-
 let loc_map = Hashtbl.create 100 (* maps location_ids to locations *)
 
 let fn_ids = ref [""] (* a list of function ids  *)
@@ -43,7 +40,7 @@ let get_or_add_fnid f fun_table =
       (Int64.of_int (List.length !fun_table - 1), false)
 
 let create_dummy_mapping reader string_table = {
-  id = 0L;
+  id = 1L;
   memory_start = start_addr;
   memory_limit = end_addr;
   file_offset = offset; (* not sure what this is *)
@@ -58,96 +55,10 @@ let create_dummy_mapping reader string_table = {
 let loc_to_int (loc_code : Location_code.t) = Int64.of_int (loc_code :> int)
 let micro_to_nanoseconds s = Int64.mul s 1000L
 
-(* ------------------- *)
-(* Printing for debugging *)
-
-let label_to_string string_table label = 
-  Printf.sprintf "key: %s\n, str: %s\n, num: num_unit:" (List.nth !string_table (Int64.to_int label.key)) (List.nth !string_table (Int64.to_int label.str))
-
-let sample_to_string sample string_table =
-  let locs = List.map Int64.to_string sample.location_id in
-  let vals = List.map Int64.to_string sample.value in
-  let labels = List.map (label_to_string string_table) sample.label in
-  Printf.sprintf "Locations: %s, Values: %s, Label: %s" (String.concat ", " locs) (String.concat ", " vals) (String.concat ", " labels)
-
-let print_value_type vt =
-  Printf.printf "  type: %Ld, unit: %Ld\n" vt.type_ vt.unit_
-
-let print_label lbl =
-  Printf.printf "  key: %Ld, str: %Ld, num: %Ld, num_unit: %Ld\n"
-    lbl.key lbl.str lbl.num lbl.num_unit
-
-let print_sample s =
-  Printf.printf "  location_id: [%s], value: [%s]\n"
-    (String.concat ", " (List.map Int64.to_string s.location_id))
-    (String.concat ", " (List.map Int64.to_string s.value));
-  List.iter print_label s.label
-
-let print_mapping (m : mapping) =
-  Printf.printf "  id: %Ld, memory_start: %Ld, memory_limit: %Ld, file_offset: %Ld, filename: %Ld, build_id: %Ld\n"
-    m.id m.memory_start m.memory_limit m.file_offset m.filename m.build_id
-
-let print_line l =
-  Printf.printf "  function_id: %Ld, line: %Ld, column: %Ld\n" l.function_id l.line l.column
-
-let print_location (loc : location) =
-  Printf.printf "  id: %Ld, mapping_id: %Ld, address: %Ld, is_folded: %b\n"
-    loc.id loc.mapping_id loc.address loc.is_folded;
-  List.iter print_line loc.line
-
-let print_function f =
-  Printf.printf "  id: %Ld, name: %Ld, system_name: %Ld, filename: %Ld, start_line: %Ld\n"
-    f.id f.name f.system_name f.filename f.start_line
-
-let print_profile profile =
-  Printf.printf "\n--- Profile ---\n";
-  Printf.printf "Sample Types:\n";
-  List.iter print_value_type profile.sample_type;
-  Printf.printf "Samples:\n";
-  List.iter print_sample profile.sample;
-  Printf.printf "Mappings:\n";
-  List.iter print_mapping profile.mapping;
-  Printf.printf "Locations:\n";
-  List.iter print_location profile.location;
-  Printf.printf "Functions:\n";
-  List.iter print_function profile.function_;
-  Printf.printf "String Table:\n  [%s]\n"
-    (String.concat ", " profile.string_table);
-  Printf.printf "drop_frames: %Ld, keep_frames: %Ld, time_nanos: %Ld, duration_nanos: %Ld, period: %Ld, default_sample_type: %Ld, doc_url: %Ld\n"
-    profile.drop_frames profile.keep_frames profile.time_nanos
-    profile.duration_nanos profile.period profile.default_sample_type
-    profile.doc_url
-
-(* for now this is copied from dump trace*)
-(*let print_ev ev reader = 
-  match ev with 
-    | Event.Alloc {obj_id; length; nsamples; source; backtrace_buffer; backtrace_length; common_prefix} ->
-      let src =
-        match source with
-        | Minor -> "alloc"
-        | Major -> "alloc_major"
-        | External -> "alloc_ext" in
-      Printf.printf "%010d %s %d len=%d % 4d:" (obj_id :> int) src nsamples length common_prefix;
-      let print_location ppf loc =
-        Printf.fprintf ppf "%s" (Location.to_string loc) in
-      for i = 0 to backtrace_length - 1 do
-        let s = backtrace_buffer.(i) in
-        match Reader.lookup_location_code reader s with
-        | [] -> Printf.printf " $%d" (s :> int)
-        | ls -> ls |> List.iter (Printf.printf " %a" print_location)
-      done;
-      Printf.printf "\n%!"; ()
-    | Event.Promote id ->
-      Printf.printf "%010d promote\n" (id :> int); ()
-    | Event.Collect id ->
-      Printf.printf "%010d collect\n" (id :> int); ()*)
-
-(* ------------------- *)
-
 (* takes CTF location codes and creates locations *)
 let update_locs reader buf len functions locations string_table =
-  let backtrace_buffer = Array.to_list buf in
   let truncated_buf = Array.sub buf 0 len in
+  let backtrace_buffer = Array.to_list truncated_buf in
       
   (* For each location code in the backtrace, 
     create location obj and add this to loc_map *)
@@ -223,13 +134,10 @@ let convert_events filename sample_rate time_end =
   let start_time = micro_to_nanoseconds (Timestamp.to_int64 ((Reader.info reader).start_time)) in 
   let end_time = micro_to_nanoseconds (Int64.of_float time_end) in
   let duration = Int64.sub start_time end_time in
-  Printf.printf "Starting iterating events ...";
 
   Reader.iter reader (fun _ ev ->
-    (*  not sure what to do with this time info for now 
-    duration := Timedelta.to_int64 time; *)
-    Printf.printf "Converting event: \n";
-    Printf.printf "%s\n" (Event.to_string (Reader.lookup_location_code reader) (ev));
+    (*  not sure what to do time info for now *) 
+    (* Printf.printf "%s\n" (Event.to_string (Reader.lookup_location_code reader) (ev));*) 
     match ev with
     | Alloc { length; nsamples; source; backtrace_buffer; backtrace_length; _ } -> 
       let loc_ids = update_locs reader backtrace_buffer backtrace_length functions locations string_table in
@@ -247,8 +155,7 @@ let convert_events filename sample_rate time_end =
         num_unit = 0L
       } in 
       let new_sample = { location_id = loc_ids; value = vals; label = [label] } in
-      samples := !samples @ [new_sample];
-      Printf.printf "sample added to list: %s\n" (sample_to_string new_sample string_table);
+      samples := !samples @ [new_sample]
     | Promote _ -> ()
     | Collect _ -> ()
     );
@@ -274,36 +181,18 @@ let convert_events filename sample_rate time_end =
 
 (* Main conversion function *)
 let convert_file fd output_file sample_rate time_end =
-  Printf.printf "Converting trace file ...";
   let profile = convert_events fd sample_rate time_end in
-  (*let mapping = create_main_mapping profile in*)
-  
+
   (* Write protobuf output *)
   let out_fd = Unix.openfile output_file [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC] 0o644 in
   let encoder = Pbrt.Encoder.create () in
   encode_pb_profile profile encoder;
   let bytes = Pbrt.Encoder.to_bytes encoder in
   Printf.printf "Encoded profile size: %d bytes\n" (Bytes.length bytes);
-  for i = 0 to min 50 (Bytes.length bytes - 1) do
+  for i = 0 to (Bytes.length bytes - 1) do
     Printf.printf "%02x " (Bytes.get_uint8 bytes i)
   done;
   Printf.printf "\n";
   let _ = Unix.write out_fd bytes 0 (Bytes.length bytes) in
   
-  Unix.close out_fd;
-
-  let bytes = 
-    let ic = open_in output_file in 
-    let len = in_channel_length ic in 
-    let bytes = Bytes.create len in 
-    really_input ic bytes 0 len; 
-    close_in ic; 
-    bytes 
-  in 
-  
-  (* Decode the person and Pretty-print it *)
-  print_profile (decode_pb_profile (Pbrt.Decoder.of_bytes bytes))
-
-
-    (*let start_time = (Reader.info trace).start_time in
-  Printf.printf "Start time: %Ld\n" (Timestamp.to_int64 start_time);*)
+  Unix.close out_fd
