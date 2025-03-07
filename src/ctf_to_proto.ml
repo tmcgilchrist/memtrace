@@ -59,14 +59,14 @@ let micro_to_nanoseconds s = Int64.mul s 1000L
 let update_locs reader buf len functions locations string_table =
   let truncated_buf = Array.sub buf 0 len in
   let backtrace_buffer = Array.to_list truncated_buf in
-      
-  (* For each location code in the backtrace, 
+
+  (* For each location code in the backtrace,
     create location obj and add this to loc_map *)
   Array.iter (fun loc_code ->
     (* check if we have already seen this location code *)
     if Hashtbl.mem loc_map loc_code then
       ()
-    else 
+    else
       (* create lines *)
       let lines = ref [] in
       (* each (ctf) location code can map to multiple (ctf) locations due to inlining) *)
@@ -74,7 +74,7 @@ let update_locs reader buf len functions locations string_table =
       List.iter (fun (ctf_loc: Location.t) ->
         (* check if function entry exists *)
         let fn_id = ref Int64.zero in
-        match get_or_add_fnid ctf_loc.defname fn_ids with  
+        match get_or_add_fnid ctf_loc.defname fn_ids with
           | (f, true) -> fn_id := f;
           | (f, false) -> fn_id := f;
             (* Create function entry *)
@@ -85,7 +85,7 @@ let update_locs reader buf len functions locations string_table =
               filename = get_or_add_string ctf_loc.filename string_table;
               start_line = Int64.of_int ctf_loc.line;
             }];
-            
+
         (* Create line info *)
         let line_info = {
           function_id = !fn_id;
@@ -97,7 +97,7 @@ let update_locs reader buf len functions locations string_table =
       ) ctf_locs;
 
       (* Create and add location *)
-      let loc = 
+      let loc =
         match ctf_locs with
         (* not sure why some location_codes map to empty lists, for now create dummy location for these *)
         | [] -> create_dummy_loc (Int64.of_int (loc_code :> int))
@@ -108,38 +108,35 @@ let update_locs reader buf len functions locations string_table =
           line = !lines;
           is_folded = false; (* not sure now *)
         } in
-      (* add loc to location list and 
+      (* add loc to location list and
         loc_code / loc pair to loc_map *)
       locations := !locations @ [loc];
       Hashtbl.add loc_map loc_code loc;
     ) truncated_buf;
    (List.map loc_to_int backtrace_buffer)
 
-
-
-
-let convert_events filename sample_rate time_end =
+let convert_events filename time_end =
   let samples = ref [] in
-  let string_table = ref [""; "source"; "minor"; "major"; "external"] in 
+  let string_table = ref [""; "source"; "minor"; "major"; "external"] in
   let locations = ref [] in
-  let functions = ref [] in (* a list of functions *) 
+  let functions = ref [] in (* a list of functions *)
   (* the first value is the number of samples
   the second value is allocation size *)
   let sample_types = [
   { type_ = get_or_add_string "samples" string_table; unit_ = get_or_add_string "count" string_table };
   { type_ = get_or_add_string "length" string_table; unit_ = get_or_add_string "bytes" string_table } (* confirm unit *)
-  ] in 
+  ] in
   let period_type = { type_ = get_or_add_string "space" string_table; unit_ = get_or_add_string "words" string_table } in
   let reader = Reader.open_ ~filename in
-  let start_time = micro_to_nanoseconds (Timestamp.to_int64 ((Reader.info reader).start_time)) in 
+  let info = Reader.info reader in
+  let start_time = micro_to_nanoseconds (Timestamp.to_int64 (info.start_time)) in
   let end_time = micro_to_nanoseconds (Int64.of_float time_end) in
   let duration = Int64.sub start_time end_time in
-
   Reader.iter reader (fun _ ev ->
-    (*  not sure what to do time info for now *) 
-    (* Printf.printf "%s\n" (Event.to_string (Reader.lookup_location_code reader) (ev));*) 
+    (*  not sure what to do time info for now *)
+    (* Printf.printf "%s\n" (Event.to_string (Reader.lookup_location_code reader) (ev));*)
     match ev with
-    | Alloc { length; nsamples; source; backtrace_buffer; backtrace_length; _ } -> 
+    | Alloc { length; nsamples; source; backtrace_buffer; backtrace_length; _ } ->
       let loc_ids = update_locs reader backtrace_buffer backtrace_length functions locations string_table in
       let vals = [Int64.of_int nsamples; Int64.of_int length] in
       (* unsure where else to put this *)
@@ -153,7 +150,7 @@ let convert_events filename sample_rate time_end =
         str = str_val;
         num = 0L;
         num_unit = 0L
-      } in 
+      } in
       let new_sample = { location_id = loc_ids; value = vals; label = [label] } in
       samples := !samples @ [new_sample]
     | Promote _ -> ()
@@ -166,22 +163,22 @@ let convert_events filename sample_rate time_end =
     sample = !samples;
     mapping = [dummy_mapping];  (* unsure *)
     location = !locations;
-    function_ = !functions; 
+    function_ = !functions;
     string_table = !string_table;
     drop_frames = 0L; (* unsure *)
     keep_frames = 0L; (* unsure *)
     time_nanos = start_time; (* unsure *)
     duration_nanos = duration; (* unsure *)
-    period_type = Some period_type; 
-    period = Int64.of_float (1.0 /. sample_rate); 
+    period_type = Some period_type;
+    period = Int64.of_float (1.0 /. info.sample_rate);
     comment = []; (* unsure *)
     default_sample_type = 0L; (* unsure *)
     doc_url = 0L (* unsure *)
   }
 
 (* Main conversion function *)
-let convert_file fd output_file sample_rate time_end =
-  let profile = convert_events fd sample_rate time_end in
+let convert_file fd output_file time_end =
+  let profile = convert_events fd time_end in
 
   (* Write protobuf output *)
   let out_fd = Unix.openfile output_file [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC] 0o644 in
@@ -189,5 +186,5 @@ let convert_file fd output_file sample_rate time_end =
   encode_pb_profile profile encoder;
   let bytes = Pbrt.Encoder.to_bytes encoder in
   let _ = Unix.write out_fd bytes 0 (Bytes.length bytes) in
-  
+
   Unix.close out_fd
