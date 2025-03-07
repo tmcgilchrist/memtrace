@@ -45,17 +45,16 @@ let start_tracing ~context ~sampling_rate ~filename =
 let stop_tracing t =
   Memprof_tracer.stop t
 
-let create_pb_file filename sample_rate time_end = Ctf_to_proto.convert_file filename (filename ^ ".pb") sample_rate time_end
-
+let create_pb_file filename = Ctf_to_proto.convert_file filename (filename ^ ".pb")
 
 let () =
-  at_exit ( 
-    fun () -> 
+  at_exit (
+    fun () ->
       begin
-        Option.iter stop_tracing (Memprof_tracer.active_tracer ()); 
-        create_pb_file !file !sample_rate (Unix.gettimeofday ())
+        Option.iter stop_tracing (Memprof_tracer.active_tracer ());
+        create_pb_file !file
       end
-  ) (* is this where timeofday should be called ? *) 
+  ) (* is this where timeofday should be called ? *)
 
 let default_sampling_rate = 1e-6
 
@@ -94,3 +93,5 @@ module External = struct
   let free = Memprof_tracer.ext_free
 end
 module Geometric_sampler = Geometric_sampler
+
+module Ctf_to_proto = Ctf_to_proto

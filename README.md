@@ -25,15 +25,16 @@ memtrace viewer, which lives at:
     https://github.com/janestreet/memtrace_viewer
 
 ## Installation
-These instructions are for using statmemprof with OCaml 5.3.0+trunk
+These instructions are for using statmemprof with OCaml 5.3.0
 
 ``` shell
 # Setup a new Blank switch
-opam switch create 5.3.0~alpha1 --no-install
-eval $(opam env --switch=5.3.0~alpha1 --set-switch)
+opam switch create 5.3.0 --no-install
+eval $(opam env --switch=5.3.0 --set-switch)
+opam install . --deps-only --with-test
 
 # Install dune
-opam install dune
+opam install dune domainslib
 ```
 
 Now we can get memory traces for programs, here is a multicore fibonacci program:
