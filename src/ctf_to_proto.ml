@@ -15,7 +15,7 @@ let get_next_addr () =
     but for now we use dummy info *)
 let create_dummy_loc id = {
   id = id;
-  mapping_id = 0L;
+  mapping_id = 1L;
   address = get_next_addr ();
   line = []; (* maybe we need something here *)
   is_folded = false;
@@ -103,7 +103,7 @@ let update_locs reader buf len functions locations string_table =
         | [] -> create_dummy_loc (Int64.of_int (loc_code :> int))
         | _ -> {
           id = Int64.of_int (loc_code :> int);
-          mapping_id = 0L; (* some default mapping for now*)
+          mapping_id = 1L; (* some default mapping for now*)
           address = get_next_addr ();    (* some default addr for now *)
           line = !lines;
           is_folded = false; (* not sure now *)
@@ -188,11 +188,6 @@ let convert_file fd output_file sample_rate time_end =
   let encoder = Pbrt.Encoder.create () in
   encode_pb_profile profile encoder;
   let bytes = Pbrt.Encoder.to_bytes encoder in
-  Printf.printf "Encoded profile size: %d bytes\n" (Bytes.length bytes);
-  for i = 0 to (Bytes.length bytes - 1) do
-    Printf.printf "%02x " (Bytes.get_uint8 bytes i)
-  done;
-  Printf.printf "\n";
   let _ = Unix.write out_fd bytes 0 (Bytes.length bytes) in
   
   Unix.close out_fd
