@@ -29,7 +29,7 @@ val stop_tracing : tracer -> unit
 
 val default_sampling_rate : float
 
-val create_pb_file : string -> float -> float -> unit 
+val create_pb_file : string -> unit 
 
 (** Use the Trace module to read and write trace files *)
 module Trace = Trace

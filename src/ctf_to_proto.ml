@@ -115,7 +115,7 @@ let update_locs reader buf len functions locations string_table =
     ) truncated_buf;
    (List.map loc_to_int backtrace_buffer)
 
-let convert_events filename time_end =
+let convert_events filename =
   let samples = ref [] in
   let string_table = ref [""; "source"; "minor"; "major"; "external"] in
   let locations = ref [] in
@@ -130,9 +130,8 @@ let convert_events filename time_end =
   let reader = Reader.open_ ~filename in
   let info = Reader.info reader in
   let start_time = micro_to_nanoseconds (Timestamp.to_int64 (info.start_time)) in
-  let end_time = micro_to_nanoseconds (Int64.of_float time_end) in
-  let duration = Int64.sub start_time end_time in
-  Reader.iter reader (fun _ ev ->
+  let time_end = ref 0L in
+  Reader.iter reader (fun time_delta ev ->
     (*  not sure what to do time info for now *)
     (* Printf.printf "%s\n" (Event.to_string (Reader.lookup_location_code reader) (ev));*)
     match ev with
@@ -152,10 +151,18 @@ let convert_events filename time_end =
         num_unit = 0L
       } in
       let new_sample = { location_id = loc_ids; value = vals; label = [label] } in
+      time_end := Timedelta.to_int64 time_delta;
       samples := !samples @ [new_sample]
-    | Promote _ -> ()
-    | Collect _ -> ()
+    | Promote _ ->
+      time_end := Timedelta.to_int64 time_delta;
+      ()
+    | Collect _ ->
+      time_end := Timedelta.to_int64 time_delta;
+      ()
     );
+
+  let end_time = micro_to_nanoseconds (!time_end) in
+  let duration = Int64.sub start_time end_time in
   let dummy_mapping = create_dummy_mapping reader string_table in
   Reader.close reader;
   {
@@ -177,8 +184,8 @@ let convert_events filename time_end =
   }
 
 (* Main conversion function *)
-let convert_file fd output_file time_end =
-  let profile = convert_events fd time_end in
+let convert_file fd output_file =
+  let profile = convert_events fd in
 
   (* Write protobuf output *)
   let out_fd = Unix.openfile output_file [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC] 0o644 in
