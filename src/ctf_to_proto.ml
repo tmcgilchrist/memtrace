@@ -23,7 +23,7 @@ let create_dummy_loc id = {
 
 let loc_map = Hashtbl.create 100 (* maps location_ids to locations *)
 
-let fn_ids = ref [""] (* a list of function ids  *)
+let fn_ids = ref [""] (* a list of function ids *)
 
 let get_or_add_string s str_table =
   match List.find_index ((=) s) !str_table with
@@ -113,7 +113,7 @@ let update_locs reader buf len functions locations string_table =
       locations := !locations @ [loc];
       Hashtbl.add loc_map loc_code loc;
     ) truncated_buf;
-   (List.map loc_to_int backtrace_buffer)
+  List.rev (List.map loc_to_int backtrace_buffer)
 
 let convert_events filename =
   let samples = ref [] in
@@ -123,13 +123,13 @@ let convert_events filename =
   (* the first value is the number of samples
   the second value is allocation size *)
   let sample_types = [
-  { type_ = get_or_add_string "samples" string_table; unit_ = get_or_add_string "count" string_table };
-  { type_ = get_or_add_string "length" string_table; unit_ = get_or_add_string "bytes" string_table } (* confirm unit *)
+  { type_ = get_or_add_string "num_samples" string_table; unit_ = get_or_add_string "count" string_table };
+  { type_ = get_or_add_string "alloc_size" string_table; unit_ = get_or_add_string "bytes" string_table } (* confirm unit *)
   ] in
   let period_type = { type_ = get_or_add_string "space" string_table; unit_ = get_or_add_string "words" string_table } in
   let reader = Reader.open_ ~filename in
   let info = Reader.info reader in
-  let start_time = micro_to_nanoseconds (Timestamp.to_int64 (info.start_time)) in
+  let start_time = micro_to_nanoseconds info.start_time in
   let time_end = ref 0L in
   Reader.iter reader (fun time_delta ev ->
     (*  not sure what to do time info for now *)
@@ -174,13 +174,13 @@ let convert_events filename =
     string_table = !string_table;
     drop_frames = 0L; (* unsure *)
     keep_frames = 0L; (* unsure *)
-    time_nanos = start_time; (* unsure *)
-    duration_nanos = duration; (* unsure *)
+    time_nanos = start_time; 
+    duration_nanos = duration; 
     period_type = Some period_type;
     period = Int64.of_float (1.0 /. info.sample_rate);
-    comment = []; (* unsure *)
-    default_sample_type = 0L; (* unsure *)
-    doc_url = 0L (* unsure *)
+    comment = []; 
+    default_sample_type = 0L; 
+    doc_url = 0L;
   }
 
 (* Main conversion function *)

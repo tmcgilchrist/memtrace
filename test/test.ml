@@ -1,4 +1,5 @@
 open Memtrace.Trace
+open Memtrace.Writer_helper
 
 let with_temp f =
   let s = Filename.temp_file "memtrace" "ctf" in
@@ -34,7 +35,7 @@ let info : Info.t = {
   host_name = "host";
   ocaml_runtime_params = "runtime";
   pid = 42L;
-  start_time = Timestamp.of_int64 23897423L;
+  start_time = 23897423L;
   context = Some "context"
 }
 
@@ -93,7 +94,7 @@ let test () = with_temp @@ fun fd ->
   let w = Writer.create fd info in
   let decode_loc l = locations.((l : Location_code.t :> int) - 1) in
   events |> List.iter (fun (i, ev) ->
-     let now = Int64.(add (Timestamp.to_int64 info.start_time) (of_int (i * 1_000_000))) in
+     let now = Int64.(add (info.start_time) (of_int (i * 1_000_000))) in
      Writer.put_event w
        ~decode_callstack_entry:decode_loc
        (Timestamp.of_int64 now) ev);

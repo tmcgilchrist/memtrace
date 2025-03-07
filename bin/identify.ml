@@ -25,7 +25,7 @@ let identify filename =
   let info = Reader.info trace in
   Printf.printf "Trace file %s (%a)\n"
     filename print_bytes (Int64.to_float (Reader.size_bytes trace));
-  let start_time = Timestamp.to_int64 info.start_time in
+  let start_time = info.start_time in
   let tm : Unix.tm = Unix.gmtime (Int64.to_float start_time *. 1e-6) in
   let days = [| "Sun"; "Mon"; "Tue"; "Wed"; "Thu"; "Fri"; "Sat" |] in
   let months = [| "Jan"; "Feb"; "Mar"; "Apr"; "May"; "Jun"; "Jul"; "Aug"; "Sep"; "Oct"; "Nov"; "Dec" |] in

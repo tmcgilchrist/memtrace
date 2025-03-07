@@ -221,25 +221,9 @@ let[@inline] get_event_header info b =
 
 module Location = Location_codec.Location
 
-
-(** Trace info *)
-
-module Info = struct
-  type t = {
-    sample_rate : float;
-    word_size : int;
-    executable_name : string;
-    host_name : string;
-    ocaml_runtime_params : string;
-    pid : Int64.t;
-    start_time : Timestamp.t;
-    context : string option;
-  }
-end
-
-let put_trace_info b (info : Info.t) =
+let put_trace_info b (info : Writer_helper.Info.t) =
   let open Write in
-  put_event_header b Ev_trace_info info.start_time;
+  put_event_header b Ev_trace_info (info.start_time);
   put_float b info.sample_rate;
   put_8 b info.word_size;
   put_string b info.executable_name;
@@ -264,7 +248,7 @@ let get_trace_info b ~packet_info =
       | "" -> None
       | s -> Some s
     else None in
-  { Info.start_time;
+  { Writer_helper.Info.start_time;
     sample_rate;
     word_size;
     executable_name;
@@ -272,8 +256,6 @@ let get_trace_info b ~packet_info =
     ocaml_runtime_params;
     pid;
     context }
-
-
 
 (** Trace writer *)
 
@@ -301,7 +283,7 @@ type writer = {
   mutable packet : Write.t;
 }
 
-let make_writer dest ?getpid (info : Info.t) =
+let make_writer dest ?getpid (info : Writer_helper.Info.t) =
   let open Write in
   let getpid = match getpid with
     | Some getpid -> getpid
@@ -360,6 +342,7 @@ module IntTbl = Hashtbl.MakeSeeded (struct
   let equal (a : t) (b : t) = a = b
 end)
 
+
 module Obj_id = struct
   type t = int
   module Tbl = IntTbl
@@ -370,17 +353,13 @@ module Location_code = struct
   module Tbl = IntTbl
 end
 
-module Allocation_source = struct
-  type t = Minor | Major | External
-end
-
 module Event = struct
   type t =
     | Alloc of {
         obj_id : Obj_id.t;
         length : int;
         nsamples : int;
-        source : Allocation_source.t;
+        source : Writer_helper.Allocation_source.t;
         backtrace_buffer : Location_code.t array;
         backtrace_length : int;
         common_prefix : int;
@@ -509,7 +488,7 @@ let put_alloc s now ~length ~nsamples ~source
   s.last_callstack <- callstack_as_ints;
   let is_short =
     1 <= length && length <= 16
-    && source = Allocation_source.Minor
+    && source = Writer_helper.Allocation_source.Minor
     && nsamples = 1
     && suff < 255 in
   begin_event s (if is_short then Ev_short_alloc length else Ev_alloc) ~now;
@@ -581,11 +560,11 @@ let get_alloc ~parse_backtraces evcode cache alloc_id b =
   let is_short, length, nsamples, source =
     match evcode with
     | Ev_short_alloc n ->
-       true, n, 1, Allocation_source.Minor
+       true, n, 1, Writer_helper.Allocation_source.Minor
     | Ev_alloc -> begin
        let length = get_vint b in
        let nsamples = get_vint b in
-       let source : Allocation_source.t =
+       let source : Writer_helper.Allocation_source.t =
          match get_8 b with
          | 0 -> Minor
          | 1 -> Major
@@ -622,7 +601,7 @@ let get_promote alloc_id b =
   let open Read in
   let id_delta = get_vint b in
   check_fmt "promote id sync" (id_delta >= 0);
-  let id = alloc_id - 1 - id_delta in
+  let id  = alloc_id - 1 - id_delta in
   Event.Promote id
 
 let put_collect s now id =
@@ -646,7 +625,7 @@ let get_collect alloc_id b =
 
 type reader = {
   fd : Unix.file_descr;
-  info : Info.t;
+  info : Writer_helper.Info.t;
   data_off : int;
   loc_table : Location.t list Location_code.Tbl.t;
 }
@@ -679,12 +658,11 @@ let refill_to size fd stream =
   let open Read in
   if remaining stream < size then refill_fd fd stream else stream
 
-
 let iter s ?(parse_backtraces=true) f =
   let open Read in
   let cache = Backtrace_codec.Reader.create () in
   let loc_reader = Location_codec.Reader.create () in
-  let last_timestamp = ref s.info.start_time in
+  let last_timestamp = ref (s.info.start_time) in
   let alloc_id = ref 0 in
   let iter_events_of_packet packet_header b =
     while remaining b > 0 do

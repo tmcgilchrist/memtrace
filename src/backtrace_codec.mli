@@ -7,7 +7,7 @@ module Writer : sig
   val put_backtrace :
     t ->
     Buf.Write.t ->
-    alloc_id:int ->
+    alloc_id:int -> 
     callstack:int array ->
     callstack_len:int ->
     log_new_location:(index:int -> unit) ->
