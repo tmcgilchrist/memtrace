@@ -47,7 +47,6 @@ let stop_tracing t =
 
 let create_pb_file filename = Ctf_to_proto.convert_file filename (filename ^ ".pb")
 
-
 let () =
   at_exit (
     fun () ->
@@ -94,3 +93,5 @@ module External = struct
   let free = Memprof_tracer.ext_free
 end
 module Geometric_sampler = Geometric_sampler
+
+module Ctf_to_proto = Ctf_to_proto
