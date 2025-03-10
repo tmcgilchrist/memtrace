@@ -113,7 +113,7 @@ let update_locs reader buf len functions locations string_table =
       locations := !locations @ [loc];
       Hashtbl.add loc_map loc_code loc;
     ) truncated_buf;
-   (List.map loc_to_int backtrace_buffer)
+  List.rev (List.map loc_to_int backtrace_buffer)
 
 let convert_events filename =
   let samples = ref [] in
@@ -123,8 +123,8 @@ let convert_events filename =
   (* the first value is the number of samples
   the second value is allocation size *)
   let sample_types = [
-  { type_ = get_or_add_string "samples" string_table; unit_ = get_or_add_string "count" string_table };
-  { type_ = get_or_add_string "length" string_table; unit_ = get_or_add_string "bytes" string_table } (* confirm unit *)
+  { type_ = get_or_add_string "num_samples" string_table; unit_ = get_or_add_string "count" string_table };
+  { type_ = get_or_add_string "alloc_size" string_table; unit_ = get_or_add_string "bytes" string_table } (* confirm unit *)
   ] in
   let period_type = { type_ = get_or_add_string "space" string_table; unit_ = get_or_add_string "words" string_table } in
   let reader = Reader.open_ ~filename in
