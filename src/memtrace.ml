@@ -4,6 +4,9 @@ type tracer = Memprof_tracer.t
 let file = ref ""
 let sample_rate = ref 0.0
 
+(* change this to flag later *)
+let pprof = true
+
 let getpid64 () = Int64.of_int (Unix.getpid ())
 
 let start_tracing ~context ~sampling_rate ~filename =
@@ -39,8 +42,12 @@ let start_tracing ~context ~sampling_rate ~filename =
       start_time = Trace.Timestamp.now ();
       context;
     } in
-  let trace = Trace.Writer.create fd ~getpid:getpid64 info in
-  Memprof_tracer.start ~sampling_rate trace
+  if pprof then 
+    let proto = Proto.create fd info in
+    Memprof_tracer.start_pprof ~sampling_rate proto
+  else
+    let trace = Trace.Writer.create fd ~getpid:getpid64 info in
+    Memprof_tracer.start ~sampling_rate trace
 
 let stop_tracing t =
   Memprof_tracer.stop t

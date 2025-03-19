@@ -23,7 +23,7 @@ let create_dummy_loc id = {
 
 let loc_map = Hashtbl.create 100 (* maps location_ids to locations *)
 
-let fn_ids = ref [""] (* a list of function ids  *)
+let fn_ids = ref [""] (* a list of function ids *)
 
 let get_or_add_string s str_table =
   match List.find_index ((=) s) !str_table with
