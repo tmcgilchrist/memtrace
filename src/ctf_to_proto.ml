@@ -129,7 +129,7 @@ let convert_events filename =
   let period_type = { type_ = get_or_add_string "space" string_table; unit_ = get_or_add_string "words" string_table } in
   let reader = Reader.open_ ~filename in
   let info = Reader.info reader in
-  let start_time = micro_to_nanoseconds (Timestamp.to_int64 (info.start_time)) in
+  let start_time = micro_to_nanoseconds info.start_time in
   let time_end = ref 0L in
   Reader.iter reader (fun time_delta ev ->
     (*  not sure what to do time info for now *)
