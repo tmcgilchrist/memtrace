@@ -40,22 +40,29 @@ let get_next_addr () =
   curr_addr := Int64.add !curr_addr offset;
   !curr_addr
 
+(* TODO: make sure these numbers make sense, for now they are copied from Backtrace_codec, Location_codec and Trace *)
+let max_loc = 4096
+let max_backtrace = 4096
+let max_ev = 100
+let max_packet_size = 1 lsl 15
+let max_strs = 4096
+
+(* Strings need to be in order, so they are encoded only when flushed *)
+module StringTable 
+
 type writer = {
   dest : Unix.file_descr;
   pid : int64; 
   getpid : unit -> int64;
-  buffer : bytes; 
-  mutable buffer_pos : int; 
-  buffer_size : int; 
-  proto_encoder : Pbrt.Encoder.t;
   sample_rate : float;
   start_time : int64;
   mutable next_alloc_id : int;
 
-  (* string table *)
-  mutable strings : (string, int) Hashtbl.t; (* i don't know if this is the most efficient way *)
-  mutable next_string_id : int;
-  mutable string_list : string list;
+  (* I don't know if this is the most efficient way, works for now  *)
+  new_strs : string Stack.t;
+  mutable new_strs_len : int;
+  new_strs_buf : Bytes.t;
+  mutable strings : (string, unit) Hashtbl.t; 
 
   (* Function and location tracking *)
   mutable functions : function_ list ref;  
@@ -65,13 +72,73 @@ type writer = {
   mutable locations : location list ref;
   mutable loc_table : unit RawBacktraceEntryTable.t; (* track which locations we have seen before *)
 
-  packet : Write.t
+  mutable packet : Write.t;
 }
 
 module Writer = struct
   type t = writer
   exception Pid_changed
 
+  (* these strings are (probably) only accessed once *)
+  let init_strtbl t =
+    let s = t.new_strs in
+    Stack.push "" s; 
+    Stack.push "num_samples" s;
+    Stack.push "count" s;
+    Stack.push "alloc_size" s;
+    Stack.push "bytes" s;
+    Stack.push "source" s;
+    Stack.push "minor" s;
+    Stack.push "major" s;
+    Stack.push "external" s;
+    Stack.push "space" s;
+    Stack.push "words" s;
+
+  let[@inline] encode_nested f v t = 
+    let old_start = Write.get_pos t.packet in
+    f v t;
+    let new_start = Write.get_pos t.packet in
+    let size =  old_start - new_start in
+    Write.int_as_varint size t.packet
+    
+  (* TODO: check - is this the write way to do it???? *)
+  (* encode the "number of samples" and "count" sample type *)
+  let encode_sample_type1 () t =
+    Write.write_varint 1L t.packet;
+    Write.key 1 Writer.Varint t.packet; 
+    Write.write_varint 2L t.packet;
+    Write.key 2 Writer.Varint t.packet; 
+
+  (* encode the "alloc size" and "bytes" sample type *)
+  let encode_sample_type1 () t =
+    Write.write_varint 3L t.packet;
+    Write.key 1 Writer.Varint t.packet; 
+    Write.write_varint 4L t.packet;
+    Write.key 2 Writer.Varint t.packet; 
+
+  let flush t =
+    if s.pid <> s.getpid () then raise Pid_changed;
+    let open Write in
+    (* Flush newly seen strings *)
+    while not (Stack.is_empty t.new_strs) do
+      let b = Write.of_bytes s.new_strs_buf in
+      (* write until either we run out of buffer space or we finish writing all strings *)
+      (* TODO: CHECK MAX_STRS SIZE*)
+      while ((not (Stack.is_empty t.new_strs)) &&
+      b.get_pos > max_strs) do
+        let str = Stack.pop t.new_strs in
+        string str b;
+        key 6 Bytes b;
+      done;
+      write_fd t.dest b
+    done;
+    (* TODO: add location flushing *)
+    (* Flush actual events *)
+    write_fd t.dest t.packet;
+    (* reset string, location and main buffers *)
+    s.new_strs_len <- 0;
+    s.packet <- Write.of_bytes s.packet.buf;
+    
   (* Create a new proto writer *)
   let create dest ?getpid (info : Writer_helper.Info.t) = 
     (* TODO: check if this is correct *)
@@ -79,33 +146,28 @@ module Writer = struct
       | Some getpid -> getpid
       | None -> fun () -> info.pid in
     let pid = getpid () in
-    let packet = Write.of_bytes (Bytes.make buffer_size '\042') in
-    let strings = Hashtbl.create 100 in
-    let function_ids = Hashtbl.create 100 in
-    let loc_table = RawBacktraceEntryTable.create 100 in
-    let functions = ref [] in
-    let locations = ref [] in
+
+    let writer = {
+      dest; pid; get_pid; 
+      sample_rate = info.sample_rate; 
+      start_time = (Int64.of_float info.start_time); 
+      next_alloc_id = 0; 
+      new_strs = Stack.create ();
+      new_strs_len = 11; (* after adding initial strings *)
+      new_strs_buf = Bytes.make max_packet_size '\042';
+      strings = Hashtbl.create 100;
+      functions = ref [];
+      function_ids =  Hashtbl.create 100; 
+      next_function_id = 1L; 
+      locations = ref []; 
+      loc_table = RawBacktraceEntryTable.create 100;
+      packet = Write.of_bytes_proto (Bytes.make buffer_size '\042'); 
+    } in 
+    init_strtbl writer;
+    encode_nested (encode_sample_type1) () writer;
+    encode_nested (encode_sample_type2) () writer;
+    writer
     
-    (* Initialize string table *)
-    Hashtbl.add strings "" 0;
-    Hashtbl.add strings "num_samples" 1;
-    Hashtbl.add strings "count" 2;
-    Hashtbl.add strings "alloc_size" 3;
-    Hashtbl.add strings "bytes" 4;
-    Hashtbl.add strings "source" 5;
-    Hashtbl.add strings "minor" 6;
-    Hashtbl.add strings "major" 7;
-    Hashtbl.add strings "external" 8;
-    Hashtbl.add strings "space" 9;
-    Hashtbl.add strings "words" 10;
-    
-    {
-      dest; pid; get_pid; buffer_size; proto_encoder = encoder; sample_rate = info.sample_rate; start_time = (Int64.of_float info.start_time); next_alloc_id = 0; 
-      strings; next_string_id = 11; string_list = [];
-      functions; function_ids; next_function_id = 1L; locations; loc_table;
-      packet; 
-    } 
-    (* TODO: encode stuff we know like sample_types writer; *)
 
   (* convert raw backtraces to int64s *)
   (*let extract_pc_addresses (bt : Printexc.raw_backtrace) : int64 array =
@@ -167,21 +229,7 @@ module Writer = struct
     else
       Int64.of_int (bt :> int)
 
-  (* encode the "number of samples" and "count" sample type *)
-  let encode_sample_type1 () encoder =
-    Pbrt.Encoder.int64_as_varint 1L encoder;
-    Pbrt.Encoder.key 1 Pbrt.Varint encoder; 
-    Pbrt.Encoder.int64_as_varint 2L encoder;
-    Pbrt.Encoder.key 2 Pbrt.Varint encoder; 
-
-  (* encode the "size" and "bytes" sample type *)
-  let encode_sample_type2 () encoder =
-    Pbrt.Encoder.int64_as_varint 3L encoder;
-    Pbrt.Encoder.key 2 Pbrt.Varint encoder; 
-    Pbrt.Encoder.int64_as_varint 4L encoder;
-    Pbrt.Encoder.key 2 Pbrt.Varint encoder; 
-
-  let encode_period_type () encoder =
+  (*let encode_period_type () encoder =
     Pbrt.Encoder.int64_as_varint 9L encoder;
     Pbrt.Encoder.key 2 Pbrt.Varint encoder; 
     Pbrt.Encoder.int64_as_varint 10L encoder;
@@ -191,7 +239,7 @@ module Writer = struct
     Pbrt.Encoder.nested encode_sample_type1 () t.encoder;
     Pbrt.Encoder.key 1 Pbrt.Bytes encoder; (* Field 1: Sample Type *)
     Pbrt.Encoder.nested encode_sample_type2 () t.encoder;
-    Pbrt.Encoder.key 1 Pbrt.Bytes encoder; (* Field 1: Sample Type*)
+    Pbrt.Encoder.key 1 Pbrt.Bytes encoder; (* Field 1: Sample Type*)*)
 
   let encode_values t n_samples size =
     Pbrt.Encoder.int64_as_varint (Int64.of_int n_samples) t.encoder;
