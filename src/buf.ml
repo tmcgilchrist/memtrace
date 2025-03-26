@@ -5,14 +5,9 @@ module Shared = struct
     pos_end : int;
   }
 
-  type payload_kind =
-    | Varint
-    | Bits32
-    | Bits64
-    | Bytes
-
   let of_bytes buf =
     { buf; pos = 0; pos_end = Bytes.length buf }
+
 
   let of_bytes_proto buf =
     { buf; pos = Bytes.length buf; pos_end = 0 }
@@ -31,6 +26,12 @@ end
 
 module Write = struct
   include Shared
+
+  type payload_kind =
+  | Varint
+  | Bits32
+  | Bits64
+  | Bytes
 
   let rec write_fully fd buf pos pos_end =
     if pos = pos_end then () else
@@ -204,7 +205,7 @@ module Write = struct
   let add_bytes self b =
     let n = Bytes.length b in
     let start = reserve_n self n in
-    Bytes.blit b 0 self.b start n
+    Bytes.blit b 0 self.buf start n
 
   let bytes b e =
     add_bytes e b;
