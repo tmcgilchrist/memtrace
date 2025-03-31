@@ -15,4 +15,5 @@
  (description "Generates compact traces of a program's memory use.")
  (depends
   (ocaml (or (>= 5.3.0) (and (>= 4.11.0) (< 5.0))))
-  pbrt))
+   pbrt
+   ctypes))
