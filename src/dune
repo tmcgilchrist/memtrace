@@ -3,7 +3,7 @@
  (public_name memtrace)
  (flags
   (:standard -w -27-32-69))           ; Ignore unused code while hacking
- (libraries unix threads pbrt ctypes))
+ (libraries unix threads pbrt ctypes mach))
 
 ;; Simplify the range of values used for Config.system
 ;; See https://github.com/ocaml/ocaml/pull/12405
