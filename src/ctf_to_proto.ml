@@ -174,13 +174,13 @@ let convert_events filename =
     string_table = !string_table;
     drop_frames = 0L; (* unsure *)
     keep_frames = 0L; (* unsure *)
-    time_nanos = start_time; (* unsure *)
-    duration_nanos = duration; (* unsure *)
+    time_nanos = start_time; 
+    duration_nanos = duration; 
     period_type = Some period_type;
     period = Int64.of_float (1.0 /. info.sample_rate);
-    comment = []; (* unsure *)
-    default_sample_type = 0L; (* unsure *)
-    doc_url = 0L (* unsure *)
+    comment = []; 
+    default_sample_type = 0L; 
+    doc_url = 0L;
   }
 
 (* Main conversion function *)

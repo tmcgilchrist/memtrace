@@ -1,6 +1,8 @@
 type t
 type t'
+(*type t_test*)
 
+(*val start_test : ?report_exn:(exn -> unit) -> sampling_rate:float -> bool -> t*)
 val start : ?report_exn:(exn -> unit) -> sampling_rate:float -> Trace.Writer.t -> t
 val stop : t -> unit 
 val start_pprof : ?report_exn:(exn -> unit) -> sampling_rate:float -> Proto.Writer.t -> t'

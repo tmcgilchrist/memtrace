@@ -1,5 +1,13 @@
-(*type tracer = Memprof_tracer.t*)
-type tracer = Memprof_tracer.t'
+type tracer = Memprof_tracer.t
+(*type tracer = Memprof_tracer.t'
+type tracer = Memprof_tracer.t_test*)
+
+let convert = true
+(*module Writer' =
+  (val if pprof then (module Proto.Write : Writer_helper.Writer_interface)
+       else (module Trace.Write : Writer_helper.Writer_interface))
+
+module Writer_impl = Make(Writer)*)
 
 (* maybe there is a better way to do this *)
 let file = ref ""
@@ -41,14 +49,17 @@ let start_tracing ~context ~sampling_rate ~filename =
       context;
     } in
   (* TODO: fix logic *)
-  let pprof_writer = Proto.Writer.create ~getpid:getpid64 fd info in
-  Memprof_tracer.start_pprof ~sampling_rate pprof_writer
-  (* let trace_writer = Trace.Writer.create fd ~getpid:getpid64 info in
-  Memprof_tracer.start ~sampling_rate trace_writer *)
+  (*let pprof_writer = Proto.Writer.create ~getpid:getpid64 fd info in
+  Memprof_tracer.start_pprof ~sampling_rate pprof_writer*)
+  let trace_writer = Trace.Writer.create fd ~getpid:getpid64 info in
+  Memprof_tracer.start ~sampling_rate trace_writer 
+  (*let writer_test = Writer'.create ~getpid:getpid64 fd info in
+  Memprof_tracer.start_test ~sampling_rate writer_test*)
 
 let stop_tracing t =
-  (*Memprof_tracer.stop t*)
-  Memprof_tracer.stop_pprof t
+  Memprof_tracer.stop t
+  (*Memprof_tracer.stop_pprof t*)
+  (*Memprof_tracer.stop_test t*)
 
 let create_pb_file filename = Ctf_to_proto.convert_file filename (filename ^ ".pb")
 
@@ -56,9 +67,10 @@ let () =
   at_exit (
     fun () ->
       begin
-        Option.iter stop_tracing (Memprof_tracer.active_proto ());
-        (*Option.iter stop_tracing (Memprof_tracer.active_tracer ());*)
-        create_pb_file !file
+        (*Option.iter stop_tracing (Memprof_tracer.active_proto ());*)
+        Option.iter stop_tracing (Memprof_tracer.active_tracer ());
+        (*Option.iter stop_tracing (Memprof_tracer.active_test ());*)
+        if convert then create_pb_file !file
       end
   ) (* is this where timeofday should be called ? *)
 

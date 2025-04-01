@@ -12,11 +12,15 @@ module Shared = struct
   let of_bytes_proto buf =
     { buf; pos = Bytes.length buf; pos_end = 0 }
 
+  let get_end b = Bytes.length b.buf
+
   let of_bytes_sub buf ~pos ~pos_end =
     { buf; pos; pos_end }
 
   let remaining b =
     b.pos_end - b.pos
+  
+  let[@inline] get_pos b = b.pos
 
   external bswap_16 : int -> int = "%bswap16"
   external bswap_32 : int32 -> int32 = "%bswap_int32"
@@ -34,12 +38,16 @@ module Write = struct
   | Bytes
 
   let rec write_fully fd buf pos pos_end =
+    Printf.printf "write_fully pos %d pos_end %d\n" pos pos_end;
     if pos = pos_end then () else
       let written = Unix.write fd buf pos (pos_end - pos) in
       write_fully fd buf (pos + written) pos_end
 
   let write_fd fd b =
     write_fully fd b.buf 0 b.pos
+
+  let write_fd_proto fd b =
+    write_fully fd b.buf b.pos (Bytes.length b.buf)
 
   let put_raw_8 b i v = Bytes.unsafe_set b i (Char.unsafe_chr v)
   external put_raw_16_ne : Bytes.t -> int -> int -> unit = "%caml_bytes_set16u"
@@ -200,8 +208,6 @@ module Write = struct
   in
   int_as_varint (pk' lor (k lsl 3)) b
 
-  let[@inline] get_pos b = b.pos
-
   let add_bytes self b =
     let n = Bytes.length b in
     let start = reserve_n self n in
@@ -214,6 +220,18 @@ module Write = struct
   let[@inline] write_string s e =
     (* safe: we're not going to modify the bytes, and [s] will not change. *)
     bytes (Bytes.unsafe_of_string s) e
+
+  let[@inline] add_char b c =
+    b.pos <- b.pos - 1;
+    Bytes.unsafe_set b.buf b.pos c
+
+  let[@inline] bool b e =
+    add_char e
+      (Char.unsafe_chr
+         (if b then
+           1
+         else
+           0))
   
 end
 
