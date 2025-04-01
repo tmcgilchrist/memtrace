@@ -94,7 +94,7 @@ module Writer = struct
     Stack.push "major" s;
     Stack.push "external" s;
     Stack.push "space" s;
-    Stack.push "words" s;
+    Stack.push "words" s
 
   let[@inline] encode_nested f v t = 
     let old_start = Write.get_pos t.encoder in

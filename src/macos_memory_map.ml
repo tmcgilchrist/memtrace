@@ -86,7 +86,6 @@ let get_process_memory_maps (pid : Pid.t) =
   let open Mach in
   let depth = 2048 in
   let self = mach_task_self () in
-  let pid = (PosixTypes.Pid.of_string Sys.argv.(1)) in
   let task = allocate uint64_t Unsigned.UInt64.zero in
   let kr = task_for_pid self pid task in
   if (not (Int32.equal kr kern_success)) then (

@@ -102,3 +102,4 @@ end
 module Geometric_sampler = Geometric_sampler
 
 module Ctf_to_proto = Ctf_to_proto
+module Memory_map = Memory_map
