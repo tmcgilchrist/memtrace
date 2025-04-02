@@ -3,3 +3,9 @@
  (public_name memtrace)
  (libraries unix threads pbrt))
 
+(rule
+ (targets profile.ml profile.mli)
+ (deps
+   (:proto profile.proto))
+ (action
+   (run ocaml-protoc %{proto} --binary --ml_out .)))
