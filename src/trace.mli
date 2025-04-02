@@ -90,7 +90,7 @@ type writer
 
 (** Writing traces *)
 module Writer : sig
-  include Writer_helper.Writer_interface 
+  include Writer_helper.Writer_interface
 
   val put_alloc_with_raw_backtrace :
     t

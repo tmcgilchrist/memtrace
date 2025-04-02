@@ -1,6 +1,6 @@
 (* This is the implementation of the encoder/decoder for the memtrace
    format. This format is quite involved, and to understand it it's
-   best to read the CTF specification and comments in memtrace.tsl
+   best to read the CTF specification and comments in memtrace.tsdl
    first. *)
 
 (* Increment this when the format changes in an incompatible way *)
@@ -802,7 +802,7 @@ module Reader = struct
   let lookup_location_code { loc_table; _ } code =
     match Location_code.Tbl.find loc_table code with
     | v -> v
-    | exception Not_found -> 
+    | exception Not_found ->
       raise (Invalid_argument
                (Printf.sprintf "invalid location code %08x" code))
 
