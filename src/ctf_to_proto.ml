@@ -13,13 +13,13 @@ let get_next_addr () =
 
 (* memtrace sometimes does not have full location info, need to check
     but for now we use dummy info *)
-let create_dummy_loc id = {
+(*let create_dummy_loc id = {
   id = id;
   mapping_id = 1L;
   address = get_next_addr ();
   line = []; (* maybe we need something here *)
   is_folded = false;
-}
+}*)
 
 let loc_map = Hashtbl.create 100 (* maps location_ids to locations *)
 
@@ -39,11 +39,15 @@ let get_or_add_fnid f fun_table =
       fun_table := !fun_table @ [f];
       (Int64.of_int (List.length !fun_table - 1), false)
 
+(* without this dummy mapping mapping, pprof cannot 
+find the main binary/executable name. But we don't have *)
 let create_dummy_mapping reader string_table = {
   id = 1L;
+  (*memory_start = start_addr;
+  memory_limit = end_addr;*)
   memory_start = start_addr;
   memory_limit = end_addr;
-  file_offset = offset; (* not sure what this is *)
+  file_offset = 0L; 
   filename = get_or_add_string ((Reader.info reader).executable_name) string_table;
   build_id = 0L;
   has_functions = false;
@@ -67,7 +71,6 @@ let update_locs reader buf len functions locations string_table =
     if Hashtbl.mem loc_map loc_code then
       ()
     else
-      (* create lines *)
       let lines = ref [] in
       (* each (ctf) location code can map to multiple (ctf) locations due to inlining) *)
       let ctf_locs = Reader.lookup_location_code reader loc_code in
@@ -96,18 +99,16 @@ let update_locs reader buf len functions locations string_table =
         lines := !lines @ [line_info];
       ) ctf_locs;
 
-      (* Create and add location *)
-      let loc =
-        match ctf_locs with
-        (* not sure why some location_codes map to empty lists, for now create dummy location for these *)
-        | [] -> create_dummy_loc (Int64.of_int (loc_code :> int))
-        | _ -> {
-          id = Int64.of_int (loc_code :> int);
-          mapping_id = 1L; (* some default mapping for now*)
-          address = get_next_addr ();    (* some default addr for now *)
-          line = !lines;
-          is_folded = false; (* not sure now *)
-        } in
+      (* Create and add location 
+         NOTE: Some (CTF) location codes map to an empty list, 
+         memtrace ignores them so I do too *)
+      let loc = {
+        id = Int64.of_int (loc_code :> int);
+        mapping_id = 1L; (* some default mapping for now *)
+        address = get_next_addr (); (* some default addr for now *)
+        line = !lines;
+        is_folded = false; (* not sure now *)
+      } in
       (* add loc to location list and
         loc_code / loc pair to loc_map *)
       locations := !locations @ [loc];
@@ -168,12 +169,13 @@ let convert_events filename =
   {
     sample_type = sample_types;
     sample = !samples;
-    mapping = [dummy_mapping];  (* unsure *)
+    mapping = [dummy_mapping]; 
     location = !locations;
     function_ = !functions;
     string_table = !string_table;
-    drop_frames = 0L; (* unsure *)
-    keep_frames = 0L; (* unsure *)
+    (* Use these fields to specify function names we want to ignore from or keep in stack traces. Currently not used but could be useful in ignoring internal functions or functions related to the trace writer itself. *)
+    drop_frames = 0L; 
+    keep_frames = 0L; 
     time_nanos = start_time; 
     duration_nanos = duration; 
     period_type = Some period_type;
@@ -195,3 +197,6 @@ let convert_file fd output_file =
   let _ = Unix.write out_fd bytes 0 (Bytes.length bytes) in
 
   Unix.close out_fd
+
+(* Summary:
+    - Go Lang uses mappings to determine the size of *)
