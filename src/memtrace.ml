@@ -9,9 +9,7 @@ let convert = true
 
 module Writer_impl = Make(Writer)*)
 
-(* maybe there is a better way to do this *)
 let file = ref ""
-let sample_rate = ref 0.0
 
 let getpid64 () = Int64.of_int (Unix.getpid ())
 
@@ -97,7 +95,6 @@ let trace_if_requested ?context ?sampling_rate () =
          | Some _ -> check_rate sampling_rate
          | None -> default_sampling_rate
      in
-    sample_rate := sampling_rate;
     let _s = start_tracing ~context ~sampling_rate ~filename in
     ()
 

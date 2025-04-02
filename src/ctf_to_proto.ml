@@ -1,25 +1,16 @@
 open Profile
 open Trace
 
-(* using dummy info for now, as we dont have mapping information *)
+(* using dummy info for now, as we dont have mapping
+ information. Addresses are non-zero so pprof does 
+ not throw errors*)
 let start_addr = 0x7F00000000L
 let end_addr = 0x7F40000000L
-let offset = 16L
+let offset = 20L
 let curr_addr = ref 0x7F0000000L
-
 let get_next_addr () =
   curr_addr := Int64.add !curr_addr offset;
   !curr_addr
-
-(* memtrace sometimes does not have full location info, need to check
-    but for now we use dummy info *)
-(*let create_dummy_loc id = {
-  id = id;
-  mapping_id = 1L;
-  address = get_next_addr ();
-  line = []; (* maybe we need something here *)
-  is_folded = false;
-}*)
 
 let loc_map = Hashtbl.create 100 (* maps location_ids to locations *)
 
@@ -39,12 +30,10 @@ let get_or_add_fnid f fun_table =
       fun_table := !fun_table @ [f];
       (Int64.of_int (List.length !fun_table - 1), false)
 
-(* without this dummy mapping mapping, pprof cannot 
-find the main binary/executable name. But we don't have *)
+(* without this mapping, pprof cannot 
+find the main binary/executable name. But we don't have actual mapping info so we use a dummy *)
 let create_dummy_mapping reader string_table = {
   id = 1L;
-  (*memory_start = start_addr;
-  memory_limit = end_addr;*)
   memory_start = start_addr;
   memory_limit = end_addr;
   file_offset = 0L; 
@@ -59,7 +48,7 @@ let create_dummy_mapping reader string_table = {
 let loc_to_int (loc_code : Location_code.t) = Int64.of_int (loc_code :> int)
 let micro_to_nanoseconds s = Int64.mul s 1000L
 
-(* takes CTF location codes and creates locations *)
+(* takes CTF location codes and creates pprof locations *)
 let update_locs reader buf len functions locations string_table =
   let truncated_buf = Array.sub buf 0 len in
   let backtrace_buffer = Array.to_list truncated_buf in
@@ -89,7 +78,6 @@ let update_locs reader buf len functions locations string_table =
               start_line = Int64.of_int ctf_loc.line;
             }];
 
-        (* Create line info *)
         let line_info = {
           function_id = !fn_id;
           line = Int64.of_int ctf_loc.line;
@@ -100,12 +88,11 @@ let update_locs reader buf len functions locations string_table =
       ) ctf_locs;
 
       (* Create and add location 
-         NOTE: Some (CTF) location codes map to an empty list, 
-         memtrace ignores them so I do too *)
+         NOTE: Some (CTF) location codes map to an empty list, memtrace ignores them so I do too *)
       let loc = {
         id = Int64.of_int (loc_code :> int);
-        mapping_id = 1L; (* some default mapping for now *)
-        address = get_next_addr (); (* some default addr for now *)
+        mapping_id = 1L; (* dummy mapping for now *)
+        address = get_next_addr (); (* dummy addr for now *)
         line = !lines;
         is_folded = false; (* not sure now *)
       } in
@@ -114,18 +101,16 @@ let update_locs reader buf len functions locations string_table =
       locations := !locations @ [loc];
       Hashtbl.add loc_map loc_code loc;
     ) truncated_buf;
-  List.rev (List.map loc_to_int backtrace_buffer)
+  List.map loc_to_int backtrace_buffer (* List.rev here *)
 
 let convert_events filename =
   let samples = ref [] in
   let string_table = ref [""; "source"; "minor"; "major"; "external"] in
   let locations = ref [] in
-  let functions = ref [] in (* a list of functions *)
-  (* the first value is the number of samples
-  the second value is allocation size *)
+  let functions = ref [] in 
   let sample_types = [
   { type_ = get_or_add_string "num_samples" string_table; unit_ = get_or_add_string "count" string_table };
-  { type_ = get_or_add_string "alloc_size" string_table; unit_ = get_or_add_string "bytes" string_table } (* confirm unit *)
+  { type_ = get_or_add_string "alloc_size" string_table; unit_ = get_or_add_string "bytes" string_table } (* confirm unit !! *)
   ] in
   let period_type = { type_ = get_or_add_string "space" string_table; unit_ = get_or_add_string "words" string_table } in
   let reader = Reader.open_ ~filename in
@@ -133,13 +118,10 @@ let convert_events filename =
   let start_time = micro_to_nanoseconds info.start_time in
   let time_end = ref 0L in
   Reader.iter reader (fun time_delta ev ->
-    (*  not sure what to do time info for now *)
-    (* Printf.printf "%s\n" (Event.to_string (Reader.lookup_location_code reader) (ev));*)
     match ev with
     | Alloc { length; nsamples; source; backtrace_buffer; backtrace_length; _ } ->
       let loc_ids = update_locs reader backtrace_buffer backtrace_length functions locations string_table in
       let vals = [Int64.of_int nsamples; Int64.of_int length] in
-      (* unsure where else to put this *)
       let str_val = match source with
         | Minor -> 2L
         | Major -> 3L
@@ -185,11 +167,9 @@ let convert_events filename =
     doc_url = 0L;
   }
 
-(* Main conversion function *)
 let convert_file fd output_file =
   let profile = convert_events fd in
 
-  (* Write protobuf output *)
   let out_fd = Unix.openfile output_file [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC] 0o644 in
   let encoder = Pbrt.Encoder.create () in
   encode_pb_profile profile encoder;
@@ -199,4 +179,8 @@ let convert_file fd output_file =
   Unix.close out_fd
 
 (* Summary:
-    - Go Lang uses mappings to determine the size of *)
+    - Without the dummy mapping, pprof cannot find the main binary name and produces an incomplete graph
+    - pprof also checks for non-zero addresses so we use random addresses using "get_next_addr ()"
+    - Fields "keep_frames" and "drop_frames" are unused for now but may be useful later 
+    - Some CTF location codes map to empty lists, I am not sure why so I ignore them
+    - I am not sure if "is_lined" field returned by Gc.memprof is the same as the "is_lined" field in a pprof location *)
