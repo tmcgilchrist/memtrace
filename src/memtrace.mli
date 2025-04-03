@@ -34,7 +34,7 @@ val create_pb_file : string -> unit
 (** Use the Trace module to read and write trace files *)
 module Trace = Trace
 module Profile = Profile
-module Writer_helper = Writer_helper
+(* module Writer_helper = Writer_helper *)
 
 (** Use Memprof_tracer in conjunction with Trace.Writer for more manual
     control over trace collection *)
@@ -60,3 +60,4 @@ module Geometric_sampler = Geometric_sampler
 
 (** Temporarily export CTF to Proto conversion module (For testing) *)
 module Ctf_to_proto = Ctf_to_proto
+module Memprof_tracer_proto = Memprof_tracer_proto

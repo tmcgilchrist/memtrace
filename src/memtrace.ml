@@ -2,6 +2,9 @@ type tracer = Memprof_tracer.t
 (*type tracer = Memprof_tracer.t'
 type tracer = Memprof_tracer.t_test*)
 
+(* What file format to write *)
+type profile_format = CTF | Prof
+
 let convert = true
 (*module Writer' =
   (val if pprof then (module Proto.Write : Writer_helper.Writer_interface)
@@ -9,12 +12,15 @@ let convert = true
 
 module Writer_impl = Make(Writer)*)
 
+module Info = Trace.Info
+
 (* maybe there is a better way to do this *)
 let file = ref ""
 let sample_rate = ref 0.0
 
 let getpid64 () = Int64.of_int (Unix.getpid ())
 
+(* TODO Duplicate this function based on detected profile format *)
 let start_tracing ~context ~sampling_rate ~filename =
   if Memprof_tracer.active_tracer () <> None then
     failwith "Only one Memtrace instance may be active at a time";
@@ -38,14 +44,14 @@ let start_tracing ~context ~sampling_rate ~filename =
          here gives us the truncate-if-a-regular-file behaviour of O_TRUNC. *)
       ()
   end;
-  let info : Writer_helper.Info.t =
+  let info : Info.t =
     { sample_rate = sampling_rate;
       word_size = Sys.word_size;
       executable_name = Sys.executable_name;
       host_name = Unix.gethostname ();
       ocaml_runtime_params = Sys.runtime_parameters ();
       pid = getpid64 ();
-      start_time = Int64.of_float (Unix.gettimeofday ()); (*TODO: this timestamp stuff needs to be handled better *)
+      start_time = Trace.Timestamp.of_float (Unix.gettimeofday ()); (*TODO: this timestamp stuff needs to be handled better *)
       context;
     } in
   (* TODO: fix logic *)
@@ -98,8 +104,14 @@ let trace_if_requested ?context ?sampling_rate () =
          | None -> default_sampling_rate
      in
     sample_rate := sampling_rate;
-    let _s = start_tracing ~context ~sampling_rate ~filename in
-    ()
+    let trace_format =
+      match Sys.getenv_opt "MEMTRACE_FORMAT" with
+      | Some "proto" -> Prof
+      | Some "ctf" | Some _ | None -> CTF (* Default to CTF *)
+    in
+    match trace_format with
+    | Prof -> ()                (* TODO Call start_tracing for pprof here! *)
+    | CTF -> ignore (start_tracing ~context ~sampling_rate ~filename)
 
 module Trace = Trace
 module Profile = Profile
@@ -114,3 +126,4 @@ end
 module Geometric_sampler = Geometric_sampler
 
 module Ctf_to_proto = Ctf_to_proto
+module Memprof_tracer_proto = Memprof_tracer_proto
