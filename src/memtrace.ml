@@ -5,9 +5,9 @@ type tracer =
 (* What file format to write *)
 type profile_format = CTF | Proto
 
-(* maybe there is a better way to do this *)
+
 let file = ref ""
-let sample_rate = ref 0.0
+let convert = false
 
 let getpid64 () = Int64.of_int (Unix.getpid ())
 
@@ -74,8 +74,6 @@ let stop_tracing t =
   | CTF_tracer tracer -> Memprof_tracer.stop tracer
   | Proto_tracer tracer -> Memprof_tracer_proto.stop tracer
 
-(*Memprof_tracer.stop_test t*)
-
 let create_pb_file filename = Ctf_to_proto.convert_file filename (filename ^ ".pb")
 
 let () =
@@ -88,9 +86,12 @@ let () =
 
         Memprof_tracer.active_tracer ()
         |> Option.map (fun x -> CTF_tracer x)
-        |> Option.iter stop_tracing
+        |> Option.iter stop_tracing ;
+
+        if convert then create_pb_file !file
+        
       end
-  ) (* is this where timeofday should be called ? *)
+  ) 
 
 let default_sampling_rate = 1e-6
 
@@ -123,6 +124,7 @@ let trace_if_requested ?context ?sampling_rate () =
     in
     ignore (start_tracing ~context ~sampling_rate ~filename ~trace_format)
 
+
 module Trace = Trace
 module Profile = Profile
 module Writer_helper = Writer_helper
@@ -137,3 +139,4 @@ module Geometric_sampler = Geometric_sampler
 
 module Ctf_to_proto = Ctf_to_proto
 module Memprof_tracer_proto = Memprof_tracer_proto
+module Memory_map = Memory_map
