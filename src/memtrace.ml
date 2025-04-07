@@ -1,13 +1,6 @@
 type tracer = Memprof_tracer.t
-(*type tracer = Memprof_tracer.t'
-type tracer = Memprof_tracer.t_test*)
 
 let convert = true
-(*module Writer' =
-  (val if pprof then (module Proto.Write : Writer_helper.Writer_interface)
-       else (module Trace.Write : Writer_helper.Writer_interface))
-
-module Writer_impl = Make(Writer)*)
 
 let file = ref ""
 
@@ -36,28 +29,21 @@ let start_tracing ~context ~sampling_rate ~filename =
          here gives us the truncate-if-a-regular-file behaviour of O_TRUNC. *)
       ()
   end;
-  let info : Writer_helper.Info.t =
+  let info : Trace.Info.t =
     { sample_rate = sampling_rate;
       word_size = Sys.word_size;
       executable_name = Sys.executable_name;
       host_name = Unix.gethostname ();
       ocaml_runtime_params = Sys.runtime_parameters ();
       pid = getpid64 ();
-      start_time = Int64.of_float (Unix.gettimeofday ()); (*TODO: this timestamp stuff needs to be handled better *)
+      start_time = Trace.Timestamp.now ();
       context;
     } in
-  (* TODO: fix logic *)
-  (*let pprof_writer = Proto.Writer.create ~getpid:getpid64 fd info in
-  Memprof_tracer.start_pprof ~sampling_rate pprof_writer*)
-  let trace_writer = Trace.Writer.create fd ~getpid:getpid64 info in
-  Memprof_tracer.start ~sampling_rate trace_writer 
-  (*let writer_test = Writer'.create ~getpid:getpid64 fd info in
-  Memprof_tracer.start_test ~sampling_rate writer_test*)
+  let trace = Trace.Writer.create fd ~getpid:getpid64 info in
+  Memprof_tracer.start ~sampling_rate trace
 
 let stop_tracing t =
   Memprof_tracer.stop t
-  (*Memprof_tracer.stop_pprof t*)
-  (*Memprof_tracer.stop_test t*)
 
 let create_pb_file filename = Ctf_to_proto.convert_file filename (filename ^ ".pb")
 
@@ -65,12 +51,10 @@ let () =
   at_exit (
     fun () ->
       begin
-        (*Option.iter stop_tracing (Memprof_tracer.active_proto ());*)
         Option.iter stop_tracing (Memprof_tracer.active_tracer ());
-        (*Option.iter stop_tracing (Memprof_tracer.active_test ());*)
         if convert then create_pb_file !file
       end
-  ) (* is this where timeofday should be called ? *)
+  ) 
 
 let default_sampling_rate = 1e-6
 
@@ -100,7 +84,6 @@ let trace_if_requested ?context ?sampling_rate () =
 
 module Trace = Trace
 module Profile = Profile
-module Writer_helper = Writer_helper
 module Memprof_tracer = Memprof_tracer
 
 module External = struct

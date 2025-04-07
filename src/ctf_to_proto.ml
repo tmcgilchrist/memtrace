@@ -3,7 +3,7 @@ open Trace
 
 (* using dummy info for now, as we dont have mapping
  information. Addresses are non-zero so pprof does 
- not throw errors*)
+ not throw errors *)
 let start_addr = 0x7F00000000L
 let end_addr = 0x7F40000000L
 let offset = 20L
@@ -101,7 +101,7 @@ let update_locs reader buf len functions locations string_table =
       locations := !locations @ [loc];
       Hashtbl.add loc_map loc_code loc;
     ) truncated_buf;
-  List.map loc_to_int backtrace_buffer (* List.rev here *)
+  List.rev (List.map loc_to_int backtrace_buffer)
 
 let convert_events filename =
   let samples = ref [] in
@@ -115,13 +115,15 @@ let convert_events filename =
   let period_type = { type_ = get_or_add_string "space" string_table; unit_ = get_or_add_string "words" string_table } in
   let reader = Reader.open_ ~filename in
   let info = Reader.info reader in
-  let start_time = micro_to_nanoseconds info.start_time in
+  let word_size = info.word_size / 8 in
+  let start_time = micro_to_nanoseconds (Timestamp.to_int64 info.start_time) in
   let time_end = ref 0L in
   Reader.iter reader (fun time_delta ev ->
     match ev with
     | Alloc { length; nsamples; source; backtrace_buffer; backtrace_length; _ } ->
       let loc_ids = update_locs reader backtrace_buffer backtrace_length functions locations string_table in
-      let vals = [Int64.of_int nsamples; Int64.of_int length] in
+      let size_in_bytes = length * word_size in
+      let vals = [Int64.of_int nsamples; Int64.of_int size_in_bytes] in
       let str_val = match source with
         | Minor -> 2L
         | Major -> 3L
@@ -179,8 +181,10 @@ let convert_file fd output_file =
   Unix.close out_fd
 
 (* Summary:
-    - Without the dummy mapping, pprof cannot find the main binary name and produces an incomplete graph
-    - pprof also checks for non-zero addresses so we use random addresses using "get_next_addr ()"
-    - Fields "keep_frames" and "drop_frames" are unused for now but may be useful later 
+    - pprof uses mappings to resolve memory addresses to symbol information. For pure OCaml code, mappings are generally not required, since memtrace already provides symbolic information.
+    - However, mappings can be useful if the program interacts with native OCaml runtime components or uses FFI libraries. Unfortunately, memtrace doesn’t expose this mapping information directly, and supporting it would require emitting protobuf data in real time — https://github.com/grouptheoryiscool/memtrace/pull/2.
+    - For now we use a dummy mapping, without which pprof cannot find the main binary name and produces an incomplete graph. Pprof also checks for non-zero addresses so we use random addresses using "get_next_addr ()".
+    - Fields "keep_frames" and "drop_frames" are unused for now but may be useful later.
     - Some CTF location codes map to empty lists, I am not sure why so I ignore them
-    - I am not sure if "is_lined" field returned by Gc.memprof is the same as the "is_lined" field in a pprof location *)
+    - I am not sure if "is_lined" field returned by Gc.memprof is the same as the "is_lined" field in a pprof location.
+    - When viewing a flamegraph in pprof, you can right-click on a location and view it's source code: another feature that uses information from the mappings that are missing in our conversion tool. *)

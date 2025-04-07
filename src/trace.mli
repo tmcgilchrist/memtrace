@@ -53,6 +53,11 @@ module Location_code : sig
   module Tbl : Hashtbl.SeededS with type key = t
 end
 
+(** Types of allocation *)
+module Allocation_source : sig
+  type t = Minor | Major | External
+end
+
 (** Trace events *)
 module Event : sig
   type t =
@@ -64,7 +69,7 @@ module Event : sig
         (** Length of the sampled allocation, in words, not including header word *)
         nsamples : int;
         (** Number of samples made in this allocation. At least 1. *)
-        source : Writer_helper.Allocation_source.t;
+        source : Allocation_source.t;
         (** How this object was initially allocated *)
         backtrace_buffer : Location_code.t array;
         (** Backtrace of the allocation.
@@ -86,39 +91,58 @@ module Event : sig
   val to_string : (Location_code.t -> Location.t list) -> t -> string
 end
 
-type writer
+(** Global trace info *)
+module Info : sig
+  type t = {
+    sample_rate : float;
+    word_size : int;
+    executable_name : string;
+    host_name : string;
+    ocaml_runtime_params : string;
+    pid : Int64.t;
+    start_time : Timestamp.t;
+    context : string option;
+  }
+end
 
 (** Writing traces *)
 module Writer : sig
-  include Writer_helper.Writer_interface 
+  type t
+  exception Pid_changed
+  val create : Unix.file_descr -> ?getpid:(unit -> int64) -> Info.t -> t
 
+  (** All of the functions below may raise Unix_error if
+      writing to the file descriptor fails, or Pid_changed
+      if getpid returns a different value. *)
+
+  val put_alloc :
+    t
+    -> Timestamp.t
+    -> length:int
+    -> nsamples:int
+    -> source:Allocation_source.t
+    -> callstack:Location_code.t array
+    -> decode_callstack_entry:(Location_code.t -> Location.t list)
+    -> Obj_id.t
   val put_alloc_with_raw_backtrace :
     t
     -> Timestamp.t
     -> length:int
     -> nsamples:int
-    -> source:Writer_helper.Allocation_source.t
+    -> source:Allocation_source.t
     -> callstack:Printexc.raw_backtrace
     -> Obj_id.t
-
-  val put_alloc :
-      t
-      -> Timestamp.t
-      -> length:int
-      -> nsamples:int
-      -> source:Writer_helper.Allocation_source.t
-      -> callstack:Location_code.t array
-      -> decode_callstack_entry:(Location_code.t -> Location.t list)
-      -> Obj_id.t
-
-  val put_event :
-      t
-      -> decode_callstack_entry:(Location_code.t -> Location.t list)
-      -> Timestamp.t
-      -> Event.t
-      -> unit
   val put_collect : t -> Timestamp.t -> Obj_id.t -> unit
   val put_promote : t -> Timestamp.t -> Obj_id.t -> unit
+  val put_event :
+    t
+    -> decode_callstack_entry:(Location_code.t -> Location.t list)
+    -> Timestamp.t
+    -> Event.t
+    -> unit
+
+  val flush : t -> unit
+  val close : t -> unit
 end
 
 (** Reading traces *)
@@ -126,7 +150,7 @@ module Reader : sig
   type t
 
   val create : Unix.file_descr -> t
-  val info : t -> Writer_helper.Info.t
+  val info : t -> Info.t
   val lookup_location_code : t -> Location_code.t -> Location.t list
 
   (** Iterate over a trace *)
