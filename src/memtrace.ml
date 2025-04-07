@@ -1,18 +1,9 @@
-type tracer = Memprof_tracer.t
-(*type tracer = Memprof_tracer.t'
-type tracer = Memprof_tracer.t_test*)
+type tracer =
+  | CTF_tracer of Memprof_tracer.t
+  | Proto_tracer of Memprof_tracer_proto.t
 
 (* What file format to write *)
-type profile_format = CTF | Prof
-
-let convert = true
-(*module Writer' =
-  (val if pprof then (module Proto.Write : Writer_helper.Writer_interface)
-       else (module Trace.Write : Writer_helper.Writer_interface))
-
-module Writer_impl = Make(Writer)*)
-
-module Info = Trace.Info
+type profile_format = CTF | Proto
 
 (* maybe there is a better way to do this *)
 let file = ref ""
@@ -21,8 +12,9 @@ let sample_rate = ref 0.0
 let getpid64 () = Int64.of_int (Unix.getpid ())
 
 (* TODO Duplicate this function based on detected profile format *)
-let start_tracing ~context ~sampling_rate ~filename =
-  if Memprof_tracer.active_tracer () <> None then
+let start_tracing ~context ~sampling_rate ~filename ~trace_format =
+  if ((Memprof_tracer.active_tracer () <> None) ||
+      (Memprof_tracer_proto.active_tracer () <> None)) then
     failwith "Only one Memtrace instance may be active at a time";
   let fd =
     try Unix.openfile filename Unix.[O_CREAT;O_WRONLY] 0o600
@@ -44,28 +36,45 @@ let start_tracing ~context ~sampling_rate ~filename =
          here gives us the truncate-if-a-regular-file behaviour of O_TRUNC. *)
       ()
   end;
-  let info : Info.t =
-    { sample_rate = sampling_rate;
-      word_size = Sys.word_size;
-      executable_name = Sys.executable_name;
-      host_name = Unix.gethostname ();
-      ocaml_runtime_params = Sys.runtime_parameters ();
-      pid = getpid64 ();
-      start_time = Trace.Timestamp.of_float (Unix.gettimeofday ()); (*TODO: this timestamp stuff needs to be handled better *)
-      context;
-    } in
-  (* TODO: fix logic *)
-  (*let pprof_writer = Proto.Writer.create ~getpid:getpid64 fd info in
-  Memprof_tracer.start_pprof ~sampling_rate pprof_writer*)
-  let trace_writer = Trace.Writer.create fd ~getpid:getpid64 info in
-  Memprof_tracer.start ~sampling_rate trace_writer 
-  (*let writer_test = Writer'.create ~getpid:getpid64 fd info in
-  Memprof_tracer.start_test ~sampling_rate writer_test*)
+
+  match trace_format with
+  | CTF ->
+      let open Trace in
+      let info : Info.t =
+         { sample_rate = sampling_rate;
+           word_size = Sys.word_size;
+           executable_name = Sys.executable_name;
+           host_name = Unix.gethostname ();
+           ocaml_runtime_params = Sys.runtime_parameters ();
+           pid = getpid64 ();
+           start_time = Timestamp.of_float (Unix.gettimeofday ()); (*TODO: this timestamp stuff needs to be handled better *)
+           context;
+      } in
+      let trace_writer = Writer.create fd ~getpid:getpid64 info in
+      let tracer = Memprof_tracer.start ~sampling_rate trace_writer in
+      CTF_tracer tracer
+  | Proto ->
+      let open Proto in
+      let info : Info.t =
+        { sample_rate = sampling_rate;
+          word_size = Sys.word_size;
+          executable_name = Sys.executable_name;
+          host_name = Unix.gethostname ();
+          ocaml_runtime_params = Sys.runtime_parameters ();
+          pid = getpid64 ();
+          start_time = Timestamp.of_float (Unix.gettimeofday ()); (*TODO: this timestamp stuff needs to be handled better *)
+          context;
+          } in
+      let trace_writer = Writer.create fd ~getpid:getpid64 info in
+      let tracer = Memprof_tracer_proto.start ~sampling_rate trace_writer in
+      Proto_tracer tracer
 
 let stop_tracing t =
-  Memprof_tracer.stop t
-  (*Memprof_tracer.stop_pprof t*)
-  (*Memprof_tracer.stop_test t*)
+  match t with
+  | CTF_tracer tracer -> Memprof_tracer.stop tracer
+  | Proto_tracer tracer -> Memprof_tracer_proto.stop tracer
+
+(*Memprof_tracer.stop_test t*)
 
 let create_pb_file filename = Ctf_to_proto.convert_file filename (filename ^ ".pb")
 
@@ -73,10 +82,13 @@ let () =
   at_exit (
     fun () ->
       begin
-        (*Option.iter stop_tracing (Memprof_tracer.active_proto ());*)
-        Option.iter stop_tracing (Memprof_tracer.active_tracer ());
-        (*Option.iter stop_tracing (Memprof_tracer.active_test ());*)
-        if convert then create_pb_file !file
+        Memprof_tracer_proto.active_tracer ()
+        |> Option.map (fun x -> Proto_tracer x)
+        |> Option.iter stop_tracing ;
+
+        Memprof_tracer.active_tracer ()
+        |> Option.map (fun x -> CTF_tracer x)
+        |> Option.iter stop_tracing
       end
   ) (* is this where timeofday should be called ? *)
 
@@ -106,12 +118,10 @@ let trace_if_requested ?context ?sampling_rate () =
     sample_rate := sampling_rate;
     let trace_format =
       match Sys.getenv_opt "MEMTRACE_FORMAT" with
-      | Some "proto" -> Prof
+      | Some "proto" -> Proto
       | Some "ctf" | Some _ | None -> CTF (* Default to CTF *)
     in
-    match trace_format with
-    | Prof -> ()                (* TODO Call start_tracing for pprof here! *)
-    | CTF -> ignore (start_tracing ~context ~sampling_rate ~filename)
+    ignore (start_tracing ~context ~sampling_rate ~filename ~trace_format)
 
 module Trace = Trace
 module Profile = Profile

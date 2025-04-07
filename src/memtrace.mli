@@ -15,6 +15,9 @@ val trace_if_requested : ?context:string -> ?sampling_rate:float -> unit -> unit
 
 (** Tracing can also be manually started and stopped. *)
 type tracer
+
+type profile_format = CTF | Proto
+
 val file : string ref
 
 (** Manually start tracing *)
@@ -22,6 +25,7 @@ val start_tracing :
   context:string option ->
   sampling_rate:float ->
   filename:string ->
+  trace_format:profile_format ->
   tracer
 
 (** Manually stop tracing *)
