@@ -1,6 +1,6 @@
 (* This is the implementation of the encoder/decoder for the memtrace
    format. This format is quite involved, and to understand it it's
-   best to read the CTF specification and comments in memtrace.tsl
+   best to read the CTF specification and comments in memtrace.tsdl
    first. *)
 
 (* Increment this when the format changes in an incompatible way *)
@@ -24,6 +24,23 @@ let[@inline never] bad_formatf f = Printf.ksprintf (fun s -> bad_format s) f
 let check_fmt s b = if not b then bad_format s
 
 (* Utility types *)
+(** Types of allocation *)
+module Allocation_source = struct
+  type t = Minor | Major | External
+  end
+
+module Info = struct
+  type t = {
+    sample_rate : float;
+    word_size : int;
+    executable_name : string;
+    host_name : string;
+    ocaml_runtime_params : string;
+    pid : Int64.t;
+    start_time : int64;
+    context : string option;
+    }
+  end
 
 (* Time since the epoch *)
 module Timestamp = struct
@@ -221,7 +238,7 @@ let[@inline] get_event_header info b =
 
 module Location = Location_codec.Location
 
-let put_trace_info b (info : Writer_helper.Info.t) =
+let put_trace_info b (info : Info.t) =
   let open Write in
   put_event_header b Ev_trace_info (info.start_time);
   put_float b info.sample_rate;
@@ -248,7 +265,7 @@ let get_trace_info b ~packet_info =
       | "" -> None
       | s -> Some s
     else None in
-  { Writer_helper.Info.start_time;
+  { Info.start_time;
     sample_rate;
     word_size;
     executable_name;
@@ -283,7 +300,7 @@ type writer = {
   mutable packet : Write.t;
 }
 
-let make_writer dest ?getpid (info : Writer_helper.Info.t) =
+let make_writer dest ?getpid (info : Info.t) =
   let open Write in
   let getpid = match getpid with
     | Some getpid -> getpid
@@ -359,7 +376,7 @@ module Event = struct
         obj_id : Obj_id.t;
         length : int;
         nsamples : int;
-        source : Writer_helper.Allocation_source.t;
+        source : Allocation_source.t;
         backtrace_buffer : Location_code.t array;
         backtrace_length : int;
         common_prefix : int;
@@ -488,7 +505,7 @@ let put_alloc s now ~length ~nsamples ~source
   s.last_callstack <- callstack_as_ints;
   let is_short =
     1 <= length && length <= 16
-    && source = Writer_helper.Allocation_source.Minor
+    && source = Allocation_source.Minor
     && nsamples = 1
     && suff < 255 in
   begin_event s (if is_short then Ev_short_alloc length else Ev_alloc) ~now;
@@ -560,11 +577,11 @@ let get_alloc ~parse_backtraces evcode cache alloc_id b =
   let is_short, length, nsamples, source =
     match evcode with
     | Ev_short_alloc n ->
-       true, n, 1, Writer_helper.Allocation_source.Minor
+       true, n, 1, Allocation_source.Minor
     | Ev_alloc -> begin
        let length = get_vint b in
        let nsamples = get_vint b in
-       let source : Writer_helper.Allocation_source.t =
+       let source : Allocation_source.t =
          match get_8 b with
          | 0 -> Minor
          | 1 -> Major
@@ -625,7 +642,7 @@ let get_collect alloc_id b =
 
 type reader = {
   fd : Unix.file_descr;
-  info : Writer_helper.Info.t;
+  info : Info.t;
   data_off : int;
   loc_table : Location.t list Location_code.Tbl.t;
 }
@@ -802,7 +819,7 @@ module Reader = struct
   let lookup_location_code { loc_table; _ } code =
     match Location_code.Tbl.find loc_table code with
     | v -> v
-    | exception Not_found -> 
+    | exception Not_found ->
       raise (Invalid_argument
                (Printf.sprintf "invalid location code %08x" code))
 

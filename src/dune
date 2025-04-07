@@ -5,6 +5,13 @@
   (:standard -w -27-32-69))           ; Ignore unused code while hacking
  (libraries unix threads pbrt ctypes mach))
 
+(rule
+ (targets profile.ml profile.mli)
+ (deps
+   (:proto profile.proto))
+ (action
+   (run ocaml-protoc %{proto} --binary --ml_out .)))
+
 ;; Simplify the range of values used for Config.system
 ;; See https://github.com/ocaml/ocaml/pull/12405
 (rule
@@ -18,3 +25,4 @@
  (target memory_map.ml)
  (enabled_if (= %{system} "macosx"))
  (action (copy %{deps} %{target})))
+

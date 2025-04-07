@@ -10,7 +10,7 @@ let copy inf outf =
     Writer.put_event w
       ~decode_callstack_entry:(fun loc ->
         Reader.lookup_location_code r loc)
-      (Timedelta.offset (Timestamp.of_int64 start_time) now) ev);
+      (Timedelta.offset start_time now) ev);
   Reader.close r;
   Writer.flush w;
   Unix.close wfd

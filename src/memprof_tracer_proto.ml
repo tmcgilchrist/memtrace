@@ -3,7 +3,7 @@ type t =
     mutable stopped : bool;
     mutex : Mutex.t;
     report_exn : exn -> unit;
-    trace : Trace.Writer.t;
+    trace : Proto.Writer.t;
     ext_sampler : Geometric_sampler.t; }
 
 let curr_active_tracer : t option Atomic.t  = Atomic.make None
@@ -15,22 +15,23 @@ let bytes_before_ext_sample = Atomic.make max_int
 let draw_sampler_bytes (t : t) =
   Geometric_sampler.draw t.ext_sampler * (Sys.word_size / 8)
 
+(* This is also all duplicated for now *)
 let[@inline never] rec lock_tracer (s: t) =
   (* Try unlocking mutex returning true if success or
      Thread.yield () until it can acquire the mutex successfully.
    *)
   if Mutex.try_lock s.mutex then
     true
-  else if s.failed then
-    false
-  else
-    (Thread.yield (); lock_tracer s)
+    else if s.failed then
+      false
+      else
+        (Thread.yield (); lock_tracer s)
 
 let[@inline never] unlock_tracer (s: t) =
   assert (not s.failed);
   Mutex.unlock s.mutex
 
-let[@inline never] mark_failed (s: t) e =
+let[@inline never] mark_failed_tracer (s: t) e =
   s.failed <- true;
   s.report_exn e;
   Mutex.unlock s.mutex
@@ -38,11 +39,11 @@ let[@inline never] mark_failed (s: t) e =
 let default_report_exn e =
   match e with
   | Trace.Writer.Pid_changed ->
-     (* This error is silently ignored, so that if Memtrace is active across
+    (* This error is silently ignored, so that if Memtrace is active across
         Unix.fork () then the child process silently stops tracing *)
-     ()
+    ()
   | e ->
-     let msg = Printf.sprintf "Memtrace failure: %s\n" (Printexc.to_string e) in
+    let msg = Printf.sprintf "Memtrace failure: %s\n" (Printexc.to_string e) in
      output_string stderr msg;
      Printexc.print_backtrace stderr;
      flush stderr
@@ -51,11 +52,11 @@ let start ?(report_exn=default_report_exn) ~sampling_rate trace =
   let ext_sampler = Geometric_sampler.make ~sampling_rate () in
   let mutex = Mutex.create () in
   let s = { mutex; stopped = false; failed = false;
-            report_exn; ext_sampler; trace } in
+            report_exn; ext_sampler; trace; } in
   let tracker : (_,_) Gc.Memprof.tracker = {
     alloc_minor = (fun info ->
       if lock_tracer s then begin
-        match Trace.Writer.put_alloc_with_raw_backtrace trace (Trace.Timestamp.now ())
+        match Proto.Writer.put_alloc_with_raw_backtrace trace (Int64.of_float (Unix.gettimeofday ()))
               ~length:info.size
               ~nsamples:info.n_samples
               ~source:Minor
@@ -63,37 +64,37 @@ let start ?(report_exn=default_report_exn) ~sampling_rate trace =
         with
         | r -> unlock_tracer s; Some r
         | exception e ->
-          mark_failed s e;
+          mark_failed_tracer s e;
           None
       end
       else None);
     alloc_major = (fun info ->
       if lock_tracer s then begin
-        match Trace.Writer.put_alloc_with_raw_backtrace trace (Trace.Timestamp.now ())
+        match Proto.Writer.put_alloc_with_raw_backtrace trace (Int64.of_float (Unix.gettimeofday ()))
               ~length:info.size
               ~nsamples:info.n_samples
               ~source:Major
               ~callstack:info.callstack
         with
         | r -> unlock_tracer s; Some r
-        | exception e -> mark_failed s e; None
+        | exception e -> mark_failed_tracer s e; None
       end else None);
     promote = (fun id ->
       if lock_tracer s then
-        match Trace.Writer.put_promote trace (Trace.Timestamp.now ()) id with
+        match Proto.Writer.put_promote trace (Proto.Timestamp.of_float (Unix.gettimeofday ())) id with
         | () -> unlock_tracer s; Some id
-        | exception e -> mark_failed s e; None
+        | exception e -> mark_failed_tracer s e; None
       else None);
     dealloc_minor = (fun id ->
       if lock_tracer s then
-        match Trace.Writer.put_collect trace (Trace.Timestamp.now ()) id with
+        match Proto.Writer.put_collect trace (Proto.Timestamp.of_float (Unix.gettimeofday ())) id with
         | () -> unlock_tracer s
-        | exception e -> mark_failed s e);
+        | exception e -> mark_failed_tracer s e);
     dealloc_major = (fun id ->
       if lock_tracer s then
-        match Trace.Writer.put_collect trace (Trace.Timestamp.now ()) id with
+        match Proto.Writer.put_collect trace (Proto.Timestamp.of_float (Unix.gettimeofday ())) id with
         | () -> unlock_tracer s
-        | exception e -> mark_failed s e) } in
+        | exception e -> mark_failed_tracer s e) } in
   Atomic.set curr_active_tracer (Some s);
   (*Atomic.set bytes_before_ext_sample (draw_sampler_bytes s);*)
   let _t = Gc.Memprof.start
@@ -102,12 +103,12 @@ let start ?(report_exn=default_report_exn) ~sampling_rate trace =
     tracker in
   s
 
-let stop (s : t) =
+let stop s =
   if not s.stopped then begin
     s.stopped <- true;
     Gc.Memprof.stop ();
     Mutex.protect s.mutex (fun () ->
-      (try Trace.Writer.close s.trace
+      (try Proto.Writer.close s.trace
         with e ->
           (s.failed <- true; s.report_exn e);
           Atomic.set curr_active_tracer None)
@@ -131,18 +132,19 @@ let[@inline never] ext_alloc_slowpath ~bytes =
         done;
         assert (Atomic.get samples > 0);
         let callstack = Printexc.get_callstack max_int in
-        Some (Trace.Writer.put_alloc_with_raw_backtrace s.trace
-                (Trace.Timestamp.now ())
+        Some (Proto.Writer.put_alloc_with_raw_backtrace s.trace
+                (Int64.of_float (Unix.gettimeofday ()))
+                (* (Trace.Timestamp.now ()) *)
                 ~length:size_words
                 ~nsamples:(Atomic.get samples)
                 ~source:External
                 ~callstack)
       with
       | r -> unlock_tracer s; r
-      | exception e -> mark_failed s e; None
+      | exception e -> mark_failed_tracer s e; None
     end else None
 
-type ext_token = Trace.Obj_id.t
+type ext_token = Proto.Obj_id.t
 
 let ext_alloc ~bytes =
   let n = Atomic.get bytes_before_ext_sample - bytes in
@@ -155,8 +157,10 @@ let ext_free id =
   | Some s ->
     if lock_tracer s then begin
         match
-          Trace.Writer.put_collect s.trace (Trace.Timestamp.now ()) id
+          Proto.Writer.put_collect s.trace (Proto.Timestamp.of_float (Unix.gettimeofday ())) id
+(* (Trace.Timestamp.now ()) id *)
         with
         | () -> unlock_tracer s; ()
-        | exception e -> mark_failed s e; ()
+        | exception e -> mark_failed_tracer s e; ()
     end
+
