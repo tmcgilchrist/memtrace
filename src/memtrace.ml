@@ -47,7 +47,7 @@ let start_tracing ~context ~sampling_rate ~filename ~trace_format =
            host_name = Unix.gethostname ();
            ocaml_runtime_params = Sys.runtime_parameters ();
            pid = getpid64 ();
-           start_time = Timestamp.of_float (Unix.gettimeofday ()); (*TODO: this timestamp stuff needs to be handled better *)
+           start_time = Timestamp.of_float (Unix.gettimeofday ());
            context;
       } in
       let trace_writer = Writer.create fd ~getpid:getpid64 info in
@@ -62,7 +62,7 @@ let start_tracing ~context ~sampling_rate ~filename ~trace_format =
           host_name = Unix.gethostname ();
           ocaml_runtime_params = Sys.runtime_parameters ();
           pid = getpid64 ();
-          start_time = Timestamp.of_float (Unix.gettimeofday ()); (*TODO: this timestamp stuff needs to be handled better *)
+          start_time = Timestamp.of_float (Unix.gettimeofday ());
           context;
           } in
       let trace_writer = Writer.create fd ~getpid:getpid64 info in
@@ -116,7 +116,6 @@ let trace_if_requested ?context ?sampling_rate () =
          | Some _ -> check_rate sampling_rate
          | None -> default_sampling_rate
      in
-    sample_rate := sampling_rate;
     let trace_format =
       match Sys.getenv_opt "MEMTRACE_FORMAT" with
       | Some "proto" -> Proto

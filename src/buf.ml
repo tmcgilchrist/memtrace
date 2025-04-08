@@ -47,6 +47,7 @@ module Write = struct
     write_fully fd b.buf 0 b.pos
 
   let write_fd_proto fd b =
+    Printf.printf "in write_fd_proto %d\n" b.pos;
     write_fully fd b.buf b.pos (Bytes.length b.buf)
 
   let put_raw_8 b i v = Bytes.unsafe_set b i (Char.unsafe_chr v)

@@ -240,7 +240,7 @@ module Writer = struct
   (* encode the "number of samples" and "count" sample type *)
   let encode_sample_type1 () e =
     Write.write_varint 1L e;
-    Write.key 1 Write.Varint e;
+    Write.key 1 Write.Varint e; 
     Write.write_varint 2L e;
     Write.key 2 Write.Varint e
 
@@ -329,6 +329,7 @@ module Writer = struct
     (* Flush new locations *)
     let i = ref 0 in
     while !i < t.new_locs_len do
+      Printf.printf "initialising new location buffer to write %d new locs\n" t.new_locs_len;
       let b_loc = of_bytes_proto t.new_locs_buf in
       while ((!i < t.new_locs_len) && (get_pos b_loc > max_loc_size)) do
         encode_loc (List.nth !(t.locations) !i) b_loc;
@@ -336,6 +337,10 @@ module Writer = struct
         incr i;
         Printf.printf "[flush] writing location %d: %s\n" (!i) (loc_to_string (List.nth !(t.locations) !i));
       done;
+      Printf.printf "[flush] after_locs raw bytes written so far: \n";
+        for i = get_pos b_loc to (get_end b_loc)-1 do
+      Printf.printf "%02X " (Char.code (Bytes.get b_loc.buf i))
+    done;
       write_fd_proto t.dest b_loc;
     done;
     (* Flush actual events *)
@@ -378,7 +383,7 @@ module Writer = struct
       next_function_id = 1L;
       locations = ref [];
       new_locs_len = 0;
-      new_locs_buf = Bytes.make max_backtrace '\042';
+      new_locs_buf = Bytes.make max_packet_size '\042';
       loc_table = RawBacktraceEntryTable.create 100;
       encoder = Write.of_bytes_proto (Bytes.make buffer_size '\042');
     } in
@@ -442,7 +447,7 @@ module Writer = struct
           Stack.push new_line lines
       ) slots;
       RawBacktraceEntryTable.add t.loc_table bt ();
-      (*t.new_locs_len <- t.new_locs_len + 1;*)
+      t.new_locs_len <- t.new_locs_len + 1;
       (* add the location to the location list *)
       let entry_as_int = Int64.of_int (bt :> int) in
       t.locations := { id = entry_as_int; mapping_id = 1L; address = get_next_addr (); line=lines; is_folded = !is_folded; } :: !(t.locations);
