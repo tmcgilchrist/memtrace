@@ -1,9 +1,12 @@
 (executables
- (names dump_trace identify subsample hotspots flamegraph)
+ (names dump_trace identify subsample hotspots flamegraph dump_profile convert self_memory_map)
  (public_names
   memtrace_dump_trace
   memtrace_identify
   memtrace_subsample
   memtrace_hotspots
-  memtrace_flamegraph)
+  memtrace_flamegraph
+  memtrace_dump_profile
+  memtrace_convert
+  self_memory_map)
  (libraries memtrace))

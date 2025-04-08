@@ -1,6 +1,6 @@
 type t
 
-val start : ?report_exn:(exn -> unit) -> sampling_rate:float -> Trace.Writer.t -> t
+val start : ?report_exn:(exn -> unit) -> sampling_rate:float -> Proto.Writer.t -> t
 val stop : t -> unit
 
 val active_tracer : unit -> t option

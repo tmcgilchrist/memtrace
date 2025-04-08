@@ -16,11 +16,14 @@ val trace_if_requested : ?context:string -> ?sampling_rate:float -> unit -> unit
 (** Tracing can also be manually started and stopped. *)
 type tracer
 
+type profile_format = CTF | Proto
+
 (** Manually start tracing *)
 val start_tracing :
   context:string option ->
   sampling_rate:float ->
   filename:string ->
+  trace_format:profile_format ->
   tracer
 
 (** Manually stop tracing *)
@@ -28,8 +31,12 @@ val stop_tracing : tracer -> unit
 
 val default_sampling_rate : float
 
+val create_pb_file : string -> unit
+
 (** Use the Trace module to read and write trace files *)
 module Trace = Trace
+module Profile = Profile
+(* module Writer_helper = Writer_helper *)
 
 (** Use Memprof_tracer in conjunction with Trace.Writer for more manual
     control over trace collection *)
@@ -52,3 +59,8 @@ end
 
 (** (For testing) *)
 module Geometric_sampler = Geometric_sampler
+
+(** Temporarily export CTF to Proto conversion module (For testing) *)
+module Ctf_to_proto = Ctf_to_proto
+module Memprof_tracer_proto = Memprof_tracer_proto
+module Memory_map = Memory_map

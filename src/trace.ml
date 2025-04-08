@@ -1,6 +1,6 @@
 (* This is the implementation of the encoder/decoder for the memtrace
    format. This format is quite involved, and to understand it it's
-   best to read the CTF specification and comments in memtrace.tsl
+   best to read the CTF specification and comments in memtrace.tsdl
    first. *)
 
 (* Increment this when the format changes in an incompatible way *)
@@ -24,6 +24,23 @@ let[@inline never] bad_formatf f = Printf.ksprintf (fun s -> bad_format s) f
 let check_fmt s b = if not b then bad_format s
 
 (* Utility types *)
+(** Types of allocation *)
+module Allocation_source = struct
+  type t = Minor | Major | External
+  end
+
+module Info = struct
+  type t = {
+    sample_rate : float;
+    word_size : int;
+    executable_name : string;
+    host_name : string;
+    ocaml_runtime_params : string;
+    pid : Int64.t;
+    start_time : int64;
+    context : string option;
+    }
+  end
 
 (* Time since the epoch *)
 module Timestamp = struct
@@ -221,25 +238,9 @@ let[@inline] get_event_header info b =
 
 module Location = Location_codec.Location
 
-
-(** Trace info *)
-
-module Info = struct
-  type t = {
-    sample_rate : float;
-    word_size : int;
-    executable_name : string;
-    host_name : string;
-    ocaml_runtime_params : string;
-    pid : Int64.t;
-    start_time : Timestamp.t;
-    context : string option;
-  }
-end
-
 let put_trace_info b (info : Info.t) =
   let open Write in
-  put_event_header b Ev_trace_info info.start_time;
+  put_event_header b Ev_trace_info (info.start_time);
   put_float b info.sample_rate;
   put_8 b info.word_size;
   put_string b info.executable_name;
@@ -272,8 +273,6 @@ let get_trace_info b ~packet_info =
     ocaml_runtime_params;
     pid;
     context }
-
-
 
 (** Trace writer *)
 
@@ -348,12 +347,18 @@ let make_writer dest ?getpid (info : Info.t) =
 
 module IntTbl = Hashtbl.MakeSeeded (struct
   type t = int
-  let seeded_hash _seed (id : t) =
+
+  let hash _seed (id : t) =
     let h = id * 189696287 in
     h lxor (h lsr 23)
-  let hash = seeded_hash
+
+  (* Required for OCaml >= 5.0.0, but causes errors for older compilers
+     because it is an unused value declaration. *)
+  let [@warning "-32"] seeded_hash = hash
+
   let equal (a : t) (b : t) = a = b
 end)
+
 
 module Obj_id = struct
   type t = int
@@ -363,10 +368,6 @@ end
 module Location_code = struct
   type t = int
   module Tbl = IntTbl
-end
-
-module Allocation_source = struct
-  type t = Minor | Major | External
 end
 
 module Event = struct
@@ -391,8 +392,8 @@ module Event = struct
             let s = backtrace_buffer.(i) in
             match decode_loc s with
             | [] -> Printf.sprintf "$%d" (s :> int)
-            | ls -> String.concat " " (List.map Location.to_string ls))
-        |> String.concat " " in
+            | ls -> String.concat " nextloc " (List.map Location.to_string ls))
+        |> String.concat " nextentryinbb " in
       let alloc_src =
         match source with
         | Minor -> "alloc"
@@ -617,7 +618,7 @@ let get_promote alloc_id b =
   let open Read in
   let id_delta = get_vint b in
   check_fmt "promote id sync" (id_delta >= 0);
-  let id = alloc_id - 1 - id_delta in
+  let id  = alloc_id - 1 - id_delta in
   Event.Promote id
 
 let put_collect s now id =
@@ -674,12 +675,11 @@ let refill_to size fd stream =
   let open Read in
   if remaining stream < size then refill_fd fd stream else stream
 
-
 let iter s ?(parse_backtraces=true) f =
   let open Read in
   let cache = Backtrace_codec.Reader.create () in
   let loc_reader = Location_codec.Reader.create () in
-  let last_timestamp = ref s.info.start_time in
+  let last_timestamp = ref (s.info.start_time) in
   let alloc_id = ref 0 in
   let iter_events_of_packet packet_header b =
     while remaining b > 0 do
@@ -754,7 +754,7 @@ module Writer = struct
   (* Unfortunately, efficient access to the backtrace is not possible
      with the current Printexc API, even though internally it's an int
      array. For now, wave the Obj.magic wand. There's a PR to fix this:
-     https://github.com/ocaml/ocaml/pull/9663 *)
+     https://github.com/ocaml/ocaml/pull/9663 *) (* TODO Fix this since 4.12*)
   let location_code_array_of_raw_backtrace (b : Printexc.raw_backtrace) =
     (Obj.magic b : Location_code.t array)
 
@@ -768,7 +768,7 @@ module Writer = struct
       let slot = convert_raw_backtrace_slot slot in
       match Slot.location slot with
       | None -> tail
-      | Some { filename; line_number; start_char; end_char } ->
+      | Some { filename; line_number; start_char; end_char; _} ->
          let defname = match Slot.name slot with Some n -> n | _ -> "??" in
          { filename; line=line_number; start_char; end_char; defname }::tail in
     get_locations (get_raw_backtrace_slot callstack i) |> List.rev

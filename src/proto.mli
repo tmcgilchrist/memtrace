@@ -1,3 +1,7 @@
+type line
+type location
+type function_
+
 (** Encoder and decoder for Memtrace traces *)
 
 (** Timestamps *)
@@ -39,7 +43,7 @@ end
 
 (** Identifiers to represent allocations *)
 module Obj_id : sig
-  type t = private int
+  type t = int
 
   (** For convenience, a hashtable keyed by object ID *)
   module Tbl : Hashtbl.SeededS with type key = t
@@ -102,8 +106,9 @@ module Info : sig
     pid : Int64.t;
     start_time : Timestamp.t;
     context : string option;
-  }
-end
+    }
+  end
+
 
 (** Writing traces *)
 module Writer : sig
@@ -114,50 +119,51 @@ module Writer : sig
   (** All of the functions below may raise Unix_error if
       writing to the file descriptor fails, or Pid_changed
       if getpid returns a different value. *)
-
-  val put_alloc :
-    t
-    -> Timestamp.t
-    -> length:int
-    -> nsamples:int
-    -> source:Allocation_source.t
-    -> callstack:Location_code.t array
-    -> decode_callstack_entry:(Location_code.t -> Location.t list)
-    -> Obj_id.t
   val put_alloc_with_raw_backtrace :
     t
-    -> Timestamp.t
+    -> int64
     -> length:int
     -> nsamples:int
     -> source:Allocation_source.t
     -> callstack:Printexc.raw_backtrace
-    -> Obj_id.t
+    -> int
+
+  val put_alloc :
+      t
+      -> Timestamp.t
+      -> length:int
+      -> nsamples:int
+      -> source:Allocation_source.t
+      -> callstack:Location_code.t array
+      -> decode_callstack_entry:(Location_code.t -> Location.t list)
+      -> Obj_id.t
+
   val put_collect : t -> Timestamp.t -> Obj_id.t -> unit
   val put_promote : t -> Timestamp.t -> Obj_id.t -> unit
   val put_event :
-    t
-    -> decode_callstack_entry:(Location_code.t -> Location.t list)
-    -> Timestamp.t
-    -> Event.t
-    -> unit
+      t
+      -> decode_callstack_entry:(Location_code.t -> Location.t list)
+      -> Timestamp.t
+      -> Event.t
+      -> unit
 
   val flush : t -> unit
   val close : t -> unit
 end
 
-(** Reading traces *)
-module Reader : sig
-  type t
+(* (\** Reading traces *\) *)
+(* module Reader : sig *)
+(*   type t *)
 
-  val create : Unix.file_descr -> t
-  val info : t -> Info.t
-  val lookup_location_code : t -> Location_code.t -> Location.t list
+(*   val create : Unix.file_descr -> t *)
+(*   val info : t -> Info.t *)
+(*   val lookup_location_code : t -> Location_code.t -> Location.t list *)
 
-  (** Iterate over a trace *)
-  val iter : t -> ?parse_backtraces:bool -> (Timedelta.t -> Event.t -> unit) -> unit
+(*   (\** Iterate over a trace *\) *)
+(*   val iter : t -> ?parse_backtraces:bool -> (Timedelta.t -> Event.t -> unit) -> unit *)
 
-  (** Convenience functions for accessing traces stored in files *)
-  val open_ : filename:string -> t
-  val size_bytes : t -> int64
-  val close : t -> unit
-end
+(*   (\** Convenience functions for accessing traces stored in files *\) *)
+(*   val open_ : filename:string -> t *)
+(*   val size_bytes : t -> int64 *)
+(*   val close : t -> unit *)
+(* end *)
