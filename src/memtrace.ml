@@ -5,9 +5,6 @@ type tracer =
 (* What file format to write *)
 type profile_format = CTF | Proto
 
-
-let file = ref ""
-
 let getpid64 () = Int64.of_int (Unix.getpid ())
 
 (* TODO Duplicate this function based on detected profile format *)
@@ -84,9 +81,9 @@ let () =
         Memprof_tracer.active_tracer ()
         |> Option.map (fun x -> CTF_tracer x)
         |> Option.iter stop_tracing ;
-        
+
       end
-  ) 
+  )
 
 let default_sampling_rate = 1e-6
 
@@ -95,7 +92,6 @@ let trace_if_requested ?context ?sampling_rate () =
   | None | Some "" -> ()
   | Some filename ->
      (* Prevent spawned OCaml programs from being traced *)
-     file := filename;
      Unix.putenv "MEMTRACE" "";
      let check_rate = function
        | Some rate when 0. < rate && rate <= 1. -> rate
@@ -123,6 +119,7 @@ module Trace = Trace
 module Profile = Profile
 module Memprof_tracer = Memprof_tracer
 
+(* TODO Need a Proto version of this module. *)
 module External = struct
   type token = Memprof_tracer.ext_token
   let alloc = Memprof_tracer.ext_alloc
