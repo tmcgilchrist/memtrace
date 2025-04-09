@@ -47,7 +47,10 @@ done
 
 # Set MEMTRACE and run the command with optional arguments
 echo "Running: MEMTRACE=\"$TRACEFILE\" dune exec ./examples/\"$EXECUTABLE\".exe -- $EXTRA_ARGS"
-MEMTRACE="$TRACEFILE" dune exec ./examples/"$EXECUTABLE".exe -- $EXTRA_ARGS
+MEMTRACE="$TRACEFILE".ctf dune exec ./examples/"$EXECUTABLE".exe -- $EXTRA_ARGS
+
+echo "Coverting to protobuf..."
+dune exec bin/convert.exe "$TRACEFILE".ctf "$TRACEFILE".pb
 
 # Run viewers in the current terminal if "t" was passed
 if [ "$RUN_VIEWERS" = true ]; then
@@ -64,5 +67,5 @@ if [ "$RUN_VIEWERS" = true ]; then
     GODEBUG=pprofdebug=1 pprof -http=":" "$TRACEFILE".pb.gz &
     
     echo "Starting memtrace-viewer..."
-    memtrace-viewer "$TRACEFILE"
+    memtrace-viewer "$TRACEFILE".ctf
 fi

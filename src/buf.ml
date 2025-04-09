@@ -8,11 +8,18 @@ module Shared = struct
   let of_bytes buf =
     { buf; pos = 0; pos_end = Bytes.length buf }
 
+  let of_bytes_proto buf =
+    { buf; pos = Bytes.length buf; pos_end = 0 }
+
+  let get_end b = Bytes.length b.buf
+
   let of_bytes_sub buf ~pos ~pos_end =
     { buf; pos; pos_end }
 
   let remaining b =
     b.pos_end - b.pos
+  
+  let[@inline] get_pos b = b.pos
 
   external bswap_16 : int -> int = "%bswap16"
   external bswap_32 : int32 -> int32 = "%bswap_int32"
@@ -23,7 +30,14 @@ end
 module Write = struct
   include Shared
 
+  type payload_kind =
+  | Varint
+  | Bits32
+  | Bits64
+  | Bytes
+
   let rec write_fully fd buf pos pos_end =
+    (*Printf.printf "write_fully pos %d pos_end %d\n" pos pos_end;*)
     if pos = pos_end then () else
       let written = Unix.write fd buf pos (pos_end - pos) in
       write_fully fd buf (pos + written) pos_end
@@ -32,13 +46,21 @@ module Write = struct
     write_fully fd b.buf 0 b.pos
 
   let write_fd_proto fd b =
-    Printf.printf "in write_fd_proto %d\n" b.pos;
     write_fully fd b.buf b.pos (Bytes.length b.buf)
 
   let put_raw_8 b i v = Bytes.unsafe_set b i (Char.unsafe_chr v)
   external put_raw_16_ne : Bytes.t -> int -> int -> unit = "%caml_bytes_set16u"
   external put_raw_32_ne : Bytes.t -> int -> int32 -> unit = "%caml_bytes_set32u"
   external put_raw_64_ne : Bytes.t -> int -> int64 -> unit = "%caml_bytes_set64u"
+
+  (* copied from PBRT: *)
+  external varint_size : (int64[@unboxed]) -> int = "caml_pbrt_varint_size_byte" "caml_pbrt_varint_size"
+  [@@noalloc]
+
+  external varint_slice : bytes -> (int[@untagged]) -> (int64[@unboxed]) -> unit
+  = "caml_pbrt_varint_byte" "caml_pbrt_varint"
+  [@@noalloc]
+
 
   let[@inline always] put_raw_16_le buf pos v =
     put_raw_16_ne buf pos (if Sys.big_endian then bswap_16 v else v)
@@ -162,6 +184,54 @@ module Write = struct
   let update_float b pos f =
     update_64 b pos (Int64.bits_of_float f)
 
+  (* the following functions are copied from PBRT: *)
+  let[@inline] reserve_n b n = 
+    if b.pos < n then raise (Overflow b.pos);
+    b.pos <- b.pos - n;
+    b.pos
+
+  let[@inline] write_varint (i : int64) b = 
+    let n_bytes = varint_size i in 
+    let start = reserve_n b n_bytes in 
+    varint_slice b.buf start i 
+
+  let int_as_varint i b = write_varint (Int64.of_int i) b
+
+  let[@inline] key k pk b =
+  let pk' =
+    match pk with
+    | Varint -> 0
+    | Bits64 -> 1
+    | Bytes -> 2
+    | Bits32 -> 5
+  in
+  int_as_varint (pk' lor (k lsl 3)) b
+
+  let add_bytes self b =
+    let n = Bytes.length b in
+    let start = reserve_n self n in
+    Bytes.blit b 0 self.buf start n
+
+  let bytes b e =
+    add_bytes e b;
+    int_as_varint (Bytes.length b) e
+
+  let[@inline] write_string s e =
+    (* safe: we're not going to modify the bytes, and [s] will not change. *)
+    bytes (Bytes.unsafe_of_string s) e
+
+  let[@inline] add_char b c =
+    b.pos <- b.pos - 1;
+    Bytes.unsafe_set b.buf b.pos c
+
+  let[@inline] bool b e =
+    add_char e
+      (Char.unsafe_chr
+         (if b then
+           1
+         else
+           0))
+  
 end
 
 module Read = struct

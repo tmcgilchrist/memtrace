@@ -24,23 +24,6 @@ let[@inline never] bad_formatf f = Printf.ksprintf (fun s -> bad_format s) f
 let check_fmt s b = if not b then bad_format s
 
 (* Utility types *)
-(** Types of allocation *)
-module Allocation_source = struct
-  type t = Minor | Major | External
-  end
-
-module Info = struct
-  type t = {
-    sample_rate : float;
-    word_size : int;
-    executable_name : string;
-    host_name : string;
-    ocaml_runtime_params : string;
-    pid : Int64.t;
-    start_time : int64;
-    context : string option;
-    }
-  end
 
 (* Time since the epoch *)
 module Timestamp = struct
@@ -236,6 +219,22 @@ let[@inline] get_event_header info b =
   (ev, time)
 
 module Location = Location_codec.Location
+
+
+(** Trace info *)
+
+module Info = struct
+  type t = {
+    sample_rate : float;
+    word_size : int;
+    executable_name : string;
+    host_name : string;
+    ocaml_runtime_params : string;
+    pid : Int64.t;
+    start_time : int64;
+    context : string option;
+    }
+  end
 
 let put_trace_info b (info : Info.t) =
   let open Write in

@@ -7,7 +7,6 @@ type profile_format = CTF | Proto
 
 
 let file = ref ""
-let convert = false
 
 let getpid64 () = Int64.of_int (Unix.getpid ())
 
@@ -74,8 +73,6 @@ let stop_tracing t =
   | CTF_tracer tracer -> Memprof_tracer.stop tracer
   | Proto_tracer tracer -> Memprof_tracer_proto.stop tracer
 
-let create_pb_file filename = Ctf_to_proto.convert_file filename (filename ^ ".pb")
-
 let () =
   at_exit (
     fun () ->
@@ -87,8 +84,6 @@ let () =
         Memprof_tracer.active_tracer ()
         |> Option.map (fun x -> CTF_tracer x)
         |> Option.iter stop_tracing ;
-
-        if convert then create_pb_file !file
         
       end
   ) 
