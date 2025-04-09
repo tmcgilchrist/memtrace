@@ -61,3 +61,22 @@ opam install memtrace_viewer
 memtrace-viewer ./fib_par_2.ctf
 ```
 
+
+# Protobuf tracing format
+
+
+## Go Example workflow
+
+``` shell
+# Change directory into Go Example program that leaks memory.
+$ cd examples/go_example
+$ go build
+$ ./go_example
+# Generates a profile.pb.gz profile.
+
+# Decode profile and print to stdou
+$ protoc --decode=perftools.profiles.Profile ./src/profile.proto --proto_path ./src/ < examples/profile.pb.gz
+
+# Start web UI for viewing profile data
+$ ~/go/bin/pprof -http localhost:8080 examples/profile.pb.gz
+```

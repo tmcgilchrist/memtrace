@@ -18,8 +18,6 @@ type tracer
 
 type profile_format = CTF | Proto
 
-val file : string ref
-
 (** Manually start tracing *)
 val start_tracing :
   context:string option ->
