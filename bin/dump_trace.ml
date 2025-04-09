@@ -1,6 +1,8 @@
 open Memtrace.Trace
 let dump filename =
   let trace = Reader.open_ ~filename in
+  Printf.printf "START TIME: %Ld\n" (Timestamp.to_int64 ((Reader.info trace).start_time));
+  Printf.printf "SAMPLE RATE: %f\n" ((Reader.info trace).sample_rate);
   Reader.iter trace (fun time ev ->
     Printf.printf "%010Ld " (Timedelta.to_int64 time);
     match ev with
