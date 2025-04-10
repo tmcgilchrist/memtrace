@@ -160,5 +160,21 @@ let test_failure () = with_temp @@ fun fd ->
   | [] -> failwith "should have failed"
   | e :: _ -> raise e
 
-let () = test ()
-let () = test_failure ()
+let test_failure_ f () =
+    Alcotest.match_raises "should have failed" (function
+     | Failure _ -> true
+     | Unix.Unix_error(Unix.EPIPE, "write", _) -> true
+     | _exn -> false) f
+
+(* let () = test () *)
+(* let () = test_failure () *)
+
+let () =
+  let open Alcotest in
+  run "Memtrace" [
+     "file",
+       [ test_case "success" `Quick test
+       ; test_case "failure" `Quick (test_failure_ test_failure)
+       ];
+     Fork.tests
+   ]

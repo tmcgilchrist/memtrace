@@ -33,5 +33,14 @@ let test_fork ~quick_exit () =
   assert (not (Hashtbl.mem sizes alloc_child));
   ()
 
-let () = test_fork ~quick_exit:false ()
-let () = test_fork ~quick_exit:true ()
+let assert_failure f () =
+  Alcotest.match_raises "should have failed" (function
+     | Failure _ -> true
+     | Unix.Unix_error(Unix.EPIPE, "write", _) -> true
+     | _exn -> false) f
+
+let tests =
+   let open Alcotest in
+   "fork",
+       [ test_case "assert only a single memtrace running" `Quick (fun () -> test_fork ~quick_exit:false ());
+         test_case "assert only a single memtrace running" `Quick (assert_failure (test_fork ~quick_exit:true) )]
