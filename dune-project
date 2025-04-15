@@ -17,4 +17,6 @@
   (ocaml (or (>= 5.3.0) (and (>= 4.11.0) (< 5.0))))
    pbrt
    mach
-   ctypes))
+   ctypes
+   ocaml-protoc 
+   domainslib))
