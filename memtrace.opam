@@ -30,3 +30,6 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/janestreet/memtrace.git"
+pin-depends: [
+  ["mach.dev" "git+https://github.com/tmcgilchrist/mach.git#main"]
+]
