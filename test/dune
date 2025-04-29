@@ -1,4 +1,4 @@
-(executables (names test trace copy fork geom_sampler convert_test) (libraries memtrace qcheck alcotest qcheck-alcotest))
+(executables (names test trace copy fork geom_sampler convert_test) (libraries memtrace qcheck))
 
 (rule
   (alias runtest)
