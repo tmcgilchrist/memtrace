@@ -92,5 +92,5 @@ $ dune exec bin/convert.exe <trace_file> <output_file>
 $ gzip <output_file>
 
 # Start web UI for viewing profile data
-$ ~/go/bin/pprof -http localhost:8080 examples/profile.pb.gz
+$ ~/go/bin/pprof -http localhost:8080 <output_file>
 ```

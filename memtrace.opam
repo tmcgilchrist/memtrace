@@ -16,6 +16,7 @@ depends: [
   "ctypes"
   "ocaml-protoc"
   "domainslib"
+  "qcheck" {with-test}
 ]
 build: [
   ["dune" "subst"] {pinned}
