@@ -80,3 +80,17 @@ $ protoc --decode=perftools.profiles.Profile ./src/profile.proto --proto_path ./
 # Start web UI for viewing profile data
 $ ~/go/bin/pprof -http localhost:8080 examples/profile.pb.gz
 ```
+
+## protobuf conversion CLI tool 
+
+To convert a memtrace .ctf file to the protobuf format, you can run:
+
+```shell
+# Generate and zip profile data
+
+$ dune exec bin/convert.exe <trace_file> <output_file>
+$ gzip <output_file>
+
+# Start web UI for viewing profile data
+$ ~/go/bin/pprof -http localhost:8080 examples/profile.pb.gz
+```

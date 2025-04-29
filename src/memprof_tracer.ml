@@ -1,39 +1,53 @@
 type t =
-  { mutable failed : bool;
+  { mutable locked : bool;
+    mutable locked_ext : bool;
+    mutable failed : bool;
     mutable stopped : bool;
-    mutex : Mutex.t;
     report_exn : exn -> unit;
     trace : Trace.Writer.t;
     ext_sampler : Geometric_sampler.t; }
 
-let curr_active_tracer : t option Atomic.t  = Atomic.make None
+let curr_active_tracer : t option ref = ref None
 
-let active_tracer () = Atomic.get curr_active_tracer
+let active_tracer () = !curr_active_tracer
 
-let bytes_before_ext_sample = Atomic.make max_int
+let bytes_before_ext_sample = ref max_int
 
 let draw_sampler_bytes (t : t) =
   Geometric_sampler.draw t.ext_sampler * (Sys.word_size / 8)
 
-let[@inline never] rec lock_tracer (s: t) =
-  (* Try unlocking mutex returning true if success or
-     Thread.yield () until it can acquire the mutex successfully.
-   *)
-  if Mutex.try_lock s.mutex then
-    true
+let[@inline never] rec lock_tracer s =
+  if s.locked then
+    if s.locked_ext then false
+    else (Thread.yield (); lock_tracer s)
   else if s.failed then
     false
   else
-    (Thread.yield (); lock_tracer s)
+    (s.locked <- true; true)
 
-let[@inline never] unlock_tracer (s: t) =
-  assert (not s.failed);
-  Mutex.unlock s.mutex
+let[@inline never] rec lock_tracer_ext s =
+  if s.locked then
+    (Thread.yield (); lock_tracer_ext s)
+  else if s.failed then
+    false
+  else
+    (s.locked <- true; s.locked_ext <- true; true)
 
-let[@inline never] mark_failed (s: t) e =
+let[@inline never] unlock_tracer s =
+  assert (s.locked && not s.locked_ext && not s.failed);
+  s.locked <- false
+
+let[@inline never] unlock_tracer_ext s =
+  assert (s.locked && s.locked_ext && not s.failed);
+  s.locked_ext <- false;
+  s.locked <- false
+
+let[@inline never] mark_failed s e =
+  assert (s.locked && not s.failed);
   s.failed <- true;
-  s.report_exn e;
-  Mutex.unlock s.mutex
+  s.locked <- false;
+  s.locked_ext <- false;
+  s.report_exn e
 
 let default_report_exn e =
   match e with
@@ -49,9 +63,8 @@ let default_report_exn e =
     
 let start ?(report_exn=default_report_exn) ~sampling_rate trace =
   let ext_sampler = Geometric_sampler.make ~sampling_rate () in
-  let mutex = Mutex.create () in
-  let s = { mutex; stopped = false; failed = false;
-            report_exn; ext_sampler; trace } in
+  let s = { trace; locked = false; locked_ext = false; stopped = false; failed = false;
+            report_exn; ext_sampler } in
   let tracker : (_,_) Gc.Memprof.tracker = {
     alloc_minor = (fun info ->
       if lock_tracer s then begin
@@ -94,69 +107,67 @@ let start ?(report_exn=default_report_exn) ~sampling_rate trace =
         match Trace.Writer.put_collect trace (Trace.Timestamp.now ()) id with
         | () -> unlock_tracer s
         | exception e -> mark_failed s e) } in
-  Atomic.set curr_active_tracer (Some s);
-  Atomic.set bytes_before_ext_sample (draw_sampler_bytes s);
+  curr_active_tracer := Some s;
+  bytes_before_ext_sample := draw_sampler_bytes s;
   let _t = Gc.Memprof.start
     ~sampling_rate
     ~callstack_size:max_int
     tracker in
   s
 
-let stop (s : t) =
+let stop s =
   if not s.stopped then begin
     s.stopped <- true;
     Gc.Memprof.stop ();
-    Mutex.protect s.mutex (fun () ->
-      (try Trace.Writer.close s.trace
-        with e ->
-          (s.failed <- true; s.report_exn e);
-          Atomic.set curr_active_tracer None)
-    )
+    if lock_tracer s then begin
+      try Trace.Writer.close s.trace with e -> mark_failed s e
+    end;
+    curr_active_tracer := None
   end
 
 let[@inline never] ext_alloc_slowpath ~bytes =
-  match Atomic.get curr_active_tracer with
-  | None -> Atomic.set bytes_before_ext_sample max_int; None
+  match !curr_active_tracer with
+  | None -> bytes_before_ext_sample := max_int; None
   | Some s ->
-    if lock_tracer s then begin
+    if lock_tracer_ext s then begin
       match
         let bytes_per_word = Sys.word_size / 8 in
         (* round up to an integer number of words *)
         let size_words = (bytes + bytes_per_word - 1) / bytes_per_word in
-        let samples = Atomic.make 0 in
-        while Atomic.get bytes_before_ext_sample <= 0 do
-          Atomic.set bytes_before_ext_sample
-            (Atomic.get bytes_before_ext_sample + draw_sampler_bytes s);
-          Atomic.incr samples
+        let samples = ref 0 in
+        while !bytes_before_ext_sample <= 0 do
+          bytes_before_ext_sample :=
+            !bytes_before_ext_sample + draw_sampler_bytes s;
+          incr samples
         done;
-        assert (Atomic.get samples > 0);
+        assert (!samples > 0);
         let callstack = Printexc.get_callstack max_int in
         Some (Trace.Writer.put_alloc_with_raw_backtrace s.trace
                 (Trace.Timestamp.now ())
                 ~length:size_words
-                ~nsamples:(Atomic.get samples)
+                ~nsamples:!samples
                 ~source:External
                 ~callstack)
       with
-      | r -> unlock_tracer s; r
+      | r -> unlock_tracer_ext s; r
       | exception e -> mark_failed s e; None
     end else None
 
 type ext_token = Trace.Obj_id.t
 
 let ext_alloc ~bytes =
-  let n = Atomic.get bytes_before_ext_sample - bytes in
-  Atomic.set bytes_before_ext_sample n;
+  let n = !bytes_before_ext_sample - bytes in
+  bytes_before_ext_sample := n;
   if n <= 0 then ext_alloc_slowpath ~bytes else None
 
 let ext_free id =
-  match Atomic.get curr_active_tracer with
+  match !curr_active_tracer with
   | None -> ()
   | Some s ->
-    if lock_tracer s then begin
-        match
-          Trace.Writer.put_collect s.trace (Trace.Timestamp.now ()) id
-        with
-        | () -> unlock_tracer s; ()
-        | exception e -> mark_failed s e; ()
+    if lock_tracer_ext s then begin
+      match
+        Trace.Writer.put_collect s.trace (Trace.Timestamp.now ()) id
+      with
+      | () -> unlock_tracer_ext s; ()
+      | exception e -> mark_failed s e; ()
     end

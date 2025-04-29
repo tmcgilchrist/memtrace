@@ -609,6 +609,7 @@ let get_alloc ~parse_backtraces evcode cache alloc_id b =
 (* The other events are much simpler *)
 
 let put_promote s now id =
+  (*Printf.printf "in put promote";*)
   let open Write in
   if id >= s.next_alloc_id then
     raise (Invalid_argument "Invalid ID in promotion");
@@ -624,6 +625,7 @@ let get_promote alloc_id b =
   Event.Promote id
 
 let put_collect s now id =
+  (*Printf.printf "in put collect";*)
   let open Write in
   if id >= s.next_alloc_id then
     raise (Invalid_argument "Invalid ID in collection");
@@ -804,7 +806,8 @@ module Writer = struct
           ~callstack:btrev
           ~decode_callstack_entry in
       if id <> obj_id then
-        raise (Invalid_argument "Incorrect allocation ID")
+        (*Printf.printf "after put alloc";*)
+        raise (Invalid_argument (Printf.sprintf "Incorrect allocation ID expected: %d, got %d" (id :> int) (obj_id :> int)))
     | Promote id ->
       put_promote w now id
     | Collect id ->
