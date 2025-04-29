@@ -19,4 +19,5 @@
    mach
    ctypes
    ocaml-protoc 
-   domainslib))
+   domainslib
+   (qcheck :with-test)))
