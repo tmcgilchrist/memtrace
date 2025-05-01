@@ -202,11 +202,4 @@ let convert_file fd output_file =
   let bytes = Pbrt.Encoder.to_bytes encoder in
   let _ = Unix.write out_fd bytes 0 (Bytes.length bytes) in
 
-  Unix.close out_fd
-
-(* Summary:
-    - pprof uses mappings to resolve memory addresses to symbol information. For pure OCaml code, mappings are generally not required, since memtrace already provides symbolic information.
-    - However, mappings can be useful if the program interacts with native OCaml runtime components or uses FFI libraries. Unfortunately, memtrace doesn’t expose this mapping information directly, and supporting it would require emitting protobuf data in real time — https://github.com/grouptheoryiscool/memtrace/pull/2.
-    - For now we use a dummy mapping, without which pprof cannot find the main binary name and produces an incomplete graph. Pprof also checks for non-zero addresses so we use random addresses using "get_next_addr ()".
-    - Fields "keep_frames" and "drop_frames" are unused for now but may be useful later.
-    - When viewing a flamegraph in pprof, you can right-click on a location and view it's source code: another feature that uses information from the mappings that are missing in our conversion tool. *)
+  Unix.close out_fd  
