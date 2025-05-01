@@ -321,9 +321,10 @@ module Writer = struct
         Printf.printf "[flush] raw bytes written so far: \"%s\":\n" str;
         for i = get_pos b to (get_end b)-1 do
           Printf.printf "%02X " (Char.code (Bytes.get b.buf i))
-        done;
+        done; 
         print_newline ();
       done;
+      Printf.printf "finished printing raw bytes, calling write\n";
       write_fd_proto t.dest b
     done;
     (* Flush new locations *)
@@ -334,8 +335,8 @@ module Writer = struct
       while ((!i < t.new_locs_len) && (get_pos b_loc > max_loc_size)) do
         encode_loc (List.nth !(t.locations) !i) b_loc;
         key 4 Bytes b_loc;
-        incr i;
         Printf.printf "[flush] writing location %d: %s\n" (!i) (loc_to_string (List.nth !(t.locations) !i));
+        incr i;
       done;
       Printf.printf "[flush] after_locs raw bytes written so far: \n";
         for i = get_pos b_loc to (get_end b_loc)-1 do
@@ -344,6 +345,10 @@ module Writer = struct
       write_fd_proto t.dest b_loc;
     done;
     (* Flush actual events *)
+    Printf.printf "[flush] writing actual events. bytes: \n";
+    for i = get_pos t.encoder to (get_end t.encoder)-1 do
+      Printf.printf "%02X " (Char.code (Bytes.get t.encoder.buf i))
+    done;
     write_fd_proto t.dest t.encoder;
     (* reset location and main buffers *)
     t.new_locs_len <- 0;
@@ -389,7 +394,9 @@ module Writer = struct
     } in
     init_strtbl writer;
     encode_nested (encode_sample_type1) () writer.encoder;
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type *)
     encode_nested (encode_sample_type2) () writer.encoder;
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type *)
     encode_period_and_type writer info.sample_rate;
     writer
 
@@ -451,6 +458,8 @@ module Writer = struct
       (* add the location to the location list *)
       let entry_as_int = Int64.of_int (bt :> int) in
       t.locations := { id = entry_as_int; mapping_id = 1L; address = get_next_addr (); line=lines; is_folded = !is_folded; } :: !(t.locations);
+      Printf.printf "[update_locs] added new loc to list. new list len = %d\n" (List.length !(t.locations));
+      (* check if we need to flush the buffer *)
       entry_as_int
       end
     else
@@ -488,9 +497,22 @@ module Writer = struct
     Write.key 3 Write.Bytes t.encoder; (* Field 3 of Sample: Labels *)
     let new_start = Write.get_pos t.encoder in
     let size =  old_start - new_start in
+    Printf.printf "[put_alloc] size of sample: %d = %d - %d\n" size old_start new_start;
     Write.int_as_varint size t.encoder;
+    Write.key 2 Write.Bytes t.encoder; (* Field 2 of Profile = Sample *)
+    Printf.printf "[put_alloc] writing bytes: ";
+    for i = Write.get_pos t.encoder to old_start do
+      Printf.printf "%02X " (Char.code (Bytes.get t.encoder.buf i))
+    done;
     (* now write all the functions we saw in this sample *)
-    encode_functions t;
+    if not (Stack.is_empty t.functions) then
+      (Printf.printf "[put_alloc] writing functions: ";
+      let bfr_f = Write.get_pos t.encoder in
+      encode_functions t;
+      let aftr_f = Write.get_pos t.encoder in
+      for i = aftr_f to bfr_f do
+        Printf.printf "%02X " (Char.code (Bytes.get t.encoder.buf i))
+      done;);
     id
 
   let put_alloc _t _ ~length:_ ~nsamples:_ ~source:_ ~callstack:_ ~decode_callstack_entry:_ = 0

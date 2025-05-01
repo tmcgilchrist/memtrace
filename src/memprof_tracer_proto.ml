@@ -20,12 +20,12 @@ let[@inline never] rec lock_tracer (s: t) =
   (* Try unlocking mutex returning true if success or
      Thread.yield () until it can acquire the mutex successfully.
    *)
-  if Mutex.try_lock s.mutex then
-    true
-    else if s.failed then
-      false
-      else
-        (Thread.yield (); lock_tracer s)
+  if s.failed then 
+    false 
+  else if (Mutex.try_lock s.mutex) then
+    true 
+  else
+    (Thread.yield (); lock_tracer s)
 
 let[@inline never] unlock_tracer (s: t) =
   assert (not s.failed);
@@ -45,7 +45,9 @@ let default_report_exn e =
   | e ->
     let msg = Printf.sprintf "Memtrace failure: %s\n" (Printexc.to_string e) in
      output_string stderr msg;
+     output_string stderr "start backtrace\n";
      Printexc.print_backtrace stderr;
+     output_string stderr "finish backtrace\n";
      flush stderr
 
 let start ?(report_exn=default_report_exn) ~sampling_rate trace =
@@ -104,6 +106,7 @@ let start ?(report_exn=default_report_exn) ~sampling_rate trace =
   s
 
 let stop s =
+  Printf.printf "Stopping memprof tracer\n";
   if not s.stopped then begin
     s.stopped <- true;
     Gc.Memprof.stop ();

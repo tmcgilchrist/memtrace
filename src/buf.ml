@@ -46,7 +46,10 @@ module Write = struct
     write_fully fd b.buf 0 b.pos
 
   let write_fd_proto fd b =
-    write_fully fd b.buf b.pos (Bytes.length b.buf)
+    Printf.printf "starting [write_fd_proto]\n";
+    write_fully fd b.buf b.pos (Bytes.length b.buf);
+    Printf.printf "finished [write_fd_proto]\n"
+
 
   let put_raw_8 b i v = Bytes.unsafe_set b i (Char.unsafe_chr v)
   external put_raw_16_ne : Bytes.t -> int -> int -> unit = "%caml_bytes_set16u"
