@@ -1,6 +1,6 @@
 type t =
-  { mutable failed : bool;
-    mutable stopped : bool;
+  { failed : bool Atomic.t;
+    stopped : bool Atomic.t;
     mutex : Mutex.t;
     report_exn : exn -> unit;
     trace : Trace.Writer.t;
@@ -19,21 +19,21 @@ let[@inline never] rec lock_tracer s =
   (* Try unlocking mutex returning true if success or
      Thread.yield () until it can acquire the mutex successfully.
    *)
-  if Mutex.try_lock s.mutex then
-    true
-  else if s.failed then
+  if (Atomic.get s.failed) then 
     false
+  else if Mutex.try_lock s.mutex then
+    true
   else
     (Thread.yield (); lock_tracer s)
 
 let[@inline never] unlock_tracer s =
-  assert (not s.failed);
+  assert (not (Atomic.get s.failed));
   Mutex.unlock s.mutex
 
 let[@inline never] mark_failed s e =
-  s.failed <- true;
-  s.report_exn e;
-  Mutex.unlock s.mutex
+  if (Atomic.compare_and_set s.failed false true) then 
+    s.report_exn e; 
+    Mutex.unlock s.mutex
 
 let default_report_exn e =
   match e with
@@ -50,7 +50,7 @@ let default_report_exn e =
 let start ?(report_exn=default_report_exn) ~sampling_rate trace =
   let ext_sampler = Geometric_sampler.make ~sampling_rate () in
   let mutex = Mutex.create () in
-  let s = { trace; mutex; stopped = false; failed = false;
+  let s = { trace; mutex; stopped = Atomic.make false; failed = Atomic.make false;
             report_exn; ext_sampler } in
   let tracker : (_,_) Gc.Memprof.tracker = {
     alloc_minor = (fun info ->
@@ -100,15 +100,13 @@ let start ?(report_exn=default_report_exn) ~sampling_rate trace =
   s
 
 let stop s =
-  if not s.stopped then begin
-    s.stopped <- true;
+  if (Atomic.compare_and_set s.stopped false true) then begin
     Gc.Memprof.stop ();
-    Mutex.protect s.mutex (fun () ->
-        try Trace.Writer.close s.trace
-        with e ->
-          (s.failed <- true; s.report_exn e);
-        Atomic.set curr_active_tracer None
-      )
+    if lock_tracer s then begin
+      try Trace.Writer.close s.trace with e ->
+        (Atomic.set s.failed true; s.report_exn e)
+    end;
+    Atomic.set curr_active_tracer None
   end
 
 let[@inline never] ext_alloc_slowpath ~bytes =
