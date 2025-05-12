@@ -121,7 +121,7 @@ module Writer : sig
       if getpid returns a different value. *)
   val put_alloc_with_raw_backtrace :
     t
-    -> int64
+    -> Timestamp.t
     -> length:int
     -> nsamples:int
     -> source:Allocation_source.t

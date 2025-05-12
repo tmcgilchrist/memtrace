@@ -126,7 +126,40 @@ module Event = struct
       Printf.sprintf "%010d collect" (id :> int)
 end
 
+module List_util = struct
+  let rev_iter_with f l st =
+    let rec iter_ f l st =
+      match l with
+      | [] -> ()
+      | x :: tl ->
+        f x st;
+        iter_ f tl st
+    in
+    let rec direct i f l st =
+      match l with
+      | [] -> ()
+      | [ x ] -> f x st
+      | [ x; y ] ->
+        f y st;
+        f x st
+      | _ when i = 0 -> iter_ f (List.rev l) st
+      | x :: y :: tl ->
+        direct (i - 1) f tl st;
+        f y st;
+        f x st
+    in
 
+    match l with
+    | [] -> ()
+    | [ x ] -> f x st
+    | [ x; y ] ->
+      f y st;
+      f x st
+    | x :: y :: tl ->
+      direct 200 f tl st;
+      f y st;
+      f x st
+end
 
 module RawBacktraceEntryTable = Hashtbl.Make(struct
   type t = Printexc.raw_backtrace_entry
@@ -166,7 +199,7 @@ let loc_to_string (loc : location) =
 let end_addr = 0x7F40000000L*)
 let offset = 16L
 let curr_addr = ref 0x7F0000000L
-let buffer_size = 65536 (* this will also change once we start streaming pprof data *)
+let buffer_size = 1 lsl 15 (* this will also change once we start streaming pprof data *)
 
 let get_next_addr () =
   curr_addr := Int64.add !curr_addr offset;
@@ -176,7 +209,7 @@ let get_next_addr () =
 and add proper checks for buffer size and flushes  *)
 let max_loc_size = 4096
 let max_backtrace = 4096
-(*let max_ev = 100*)
+let max_ev = 100 + max_backtrace
 let max_packet_size = 1 lsl 15
 let max_str_size = 4096
 
@@ -215,7 +248,7 @@ module Writer = struct
   exception Pid_changed
 
   (* these strings are (probably) only accessed once *)
-  let init_strtbl t =
+  let init_strtbl t name =
     let s = t.new_strs in
     Stack.push "" s;
     Stack.push "num_samples" s;
@@ -227,7 +260,8 @@ module Writer = struct
     Stack.push "major" s;
     Stack.push "external" s;
     Stack.push "space" s;
-    Stack.push "words" s
+    Stack.push "words" s;
+    Stack.push name s
 
   let[@inline] encode_nested f v e =
     let old_start = Write.get_pos e in
@@ -260,7 +294,6 @@ module Writer = struct
     Write.key 3 Write.Varint encoder
 
   let encode_loc (loc : location) encoder =
-    Printf.printf "Encoding location: %s" (loc_to_string loc);
     let old_start = Write.get_pos encoder in
     Write.write_varint loc.id encoder;
     Write.key 1 Write.Varint encoder;
@@ -302,13 +335,18 @@ module Writer = struct
       encode_nested encode_function f t.encoder;
       Write.key 5 Write.Bytes t.encoder (* Field 5 of Profile = functions *)
     done
+  
+  let encode_mapping () e = 
+    Write.write_varint 1L e;
+    Write.key 1 Write.Varint e;
+    Write.write_varint 11L e;
+    Write.key 5 Write.Varint e
 
   let flush t =
     if t.pid <> t.getpid () then raise Pid_changed;
     let open Write in
     (* Flush newly seen strings *)
     while not (Stack.is_empty t.new_strs) do
-      Printf.printf "initialising new string buffer\n";
       let b = Write.of_bytes_proto t.new_strs_buf in
       (* write until either we run out of buffer space or we finish writing all strings *)
       (* TODO: CHECK MAX_STRS_SIZE*)
@@ -317,38 +355,40 @@ module Writer = struct
         let str = Stack.pop t.new_strs in
         write_string str b;
         key 6 Bytes b;
-        Printf.printf "[flush] writing string: %s\n" str;
-        Printf.printf "[flush] raw bytes written so far: \"%s\":\n" str;
+        Printf.printf "[flush] writing string: %s\n%!" str;
+        Printf.printf "[flush] raw bytes written so far: \"%s\":\n%!" str;
         for i = get_pos b to (get_end b)-1 do
           Printf.printf "%02X " (Char.code (Bytes.get b.buf i))
         done; 
         print_newline ();
       done;
-      Printf.printf "finished printing raw bytes, calling write\n";
+      Printf.printf "finished printing raw bytes, calling write\n%!";
       write_fd_proto t.dest b
     done;
     (* Flush new locations *)
     let i = ref 0 in
     while !i < t.new_locs_len do
-      Printf.printf "initialising new location buffer to write %d new locs\n" t.new_locs_len;
+      Printf.printf "initialising new location buffer to write %d new locs\n%!" t.new_locs_len;
       let b_loc = of_bytes_proto t.new_locs_buf in
       while ((!i < t.new_locs_len) && (get_pos b_loc > max_loc_size)) do
         encode_loc (List.nth !(t.locations) !i) b_loc;
         key 4 Bytes b_loc;
-        Printf.printf "[flush] writing location %d: %s\n" (!i) (loc_to_string (List.nth !(t.locations) !i));
+        Printf.printf "[flush] writing location %d: %s\n%!" (!i) (loc_to_string (List.nth !(t.locations) !i));
         incr i;
       done;
-      Printf.printf "[flush] after_locs raw bytes written so far: \n";
-        for i = get_pos b_loc to (get_end b_loc)-1 do
-      Printf.printf "%02X " (Char.code (Bytes.get b_loc.buf i))
-    done;
+      Printf.printf "[flush] after_locs raw bytes written so far: \n%!";
+      for i = get_pos b_loc to (get_end b_loc)-1 do
+        Printf.printf "%02X " (Char.code (Bytes.get b_loc.buf i))
+      done;
+      
       write_fd_proto t.dest b_loc;
     done;
     (* Flush actual events *)
-    Printf.printf "[flush] writing actual events. bytes: \n";
+    Printf.printf "[flush] writing actual events. bytes: \n%!";
     for i = get_pos t.encoder to (get_end t.encoder)-1 do
       Printf.printf "%02X " (Char.code (Bytes.get t.encoder.buf i))
     done;
+    print_newline ();
     write_fd_proto t.dest t.encoder;
     (* reset location and main buffers *)
     t.new_locs_len <- 0;
@@ -380,7 +420,7 @@ module Writer = struct
       start_time = info.start_time;
       next_alloc_id = 0;
       new_strs = Stack.create ();
-      strs_len = 11L; (* after adding initial strings *)
+      strs_len = 12L; (* after adding initial strings *)
       new_strs_buf = Bytes.make max_packet_size '\042';
       strings = Hashtbl.create 100;
       functions = Stack.create ();
@@ -392,7 +432,9 @@ module Writer = struct
       loc_table = RawBacktraceEntryTable.create 100;
       encoder = Write.of_bytes_proto (Bytes.make buffer_size '\042');
     } in
-    init_strtbl writer;
+    init_strtbl writer info.executable_name;
+    encode_nested (encode_mapping) () writer.encoder;
+    Write.key 3 Write.Bytes writer.encoder; (* Field 3 of Profile = Mapping *)
     encode_nested (encode_sample_type1) () writer.encoder;
     Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type *)
     encode_nested (encode_sample_type2) () writer.encoder;
@@ -477,15 +519,18 @@ module Writer = struct
     Write.key 2 Write.Varint encoder
 
   let put_alloc_with_raw_backtrace t _ ~length ~nsamples ~source ~callstack =
+    if Write.get_pos t.encoder < max_ev then flush t;
     let id = t.next_alloc_id in
     t.next_alloc_id <- id + 1;
     (* writing the nested sample field *)
     let old_start = Write.get_pos t.encoder in
+    Printf.printf "[put_alloc] OLD START = %d\n%!" old_start;
     encode_nested (fun lst e ->
-      Array.iter (fun x ->
-        let entry = update_locs x t in
-        Write.write_varint entry e;
-      ) lst;
+      for i = (Array.length lst)-1 downto 0 do
+        let entry = lst.(i) in
+        let entry = update_locs entry t in
+        Write.write_varint entry e
+      done
     ) (Printexc.raw_backtrace_entries callstack) t.encoder;
     Write.key 1 Write.Bytes t.encoder; (* Field 1 of  Sample: Location IDs *)
     encode_nested (fun (a, b) e ->
@@ -501,9 +546,10 @@ module Writer = struct
     Write.int_as_varint size t.encoder;
     Write.key 2 Write.Bytes t.encoder; (* Field 2 of Profile = Sample *)
     Printf.printf "[put_alloc] writing bytes: ";
-    for i = Write.get_pos t.encoder to old_start do
+    for i = Write.get_pos t.encoder to (old_start-1) do
       Printf.printf "%02X " (Char.code (Bytes.get t.encoder.buf i))
     done;
+    print_newline ();
     (* now write all the functions we saw in this sample *)
     if not (Stack.is_empty t.functions) then
       (Printf.printf "[put_alloc] writing functions: ";
@@ -512,7 +558,7 @@ module Writer = struct
       let aftr_f = Write.get_pos t.encoder in
       for i = aftr_f to bfr_f do
         Printf.printf "%02X " (Char.code (Bytes.get t.encoder.buf i))
-      done;);
+      done; print_newline ());
     id
 
   let put_alloc _t _ ~length:_ ~nsamples:_ ~source:_ ~callstack:_ ~decode_callstack_entry:_ = 0
@@ -526,6 +572,7 @@ module Writer = struct
     Write.key 10 Write.Varint t.encoder
 
   let close t =
+    Printf.printf "closing tracer, thread:%d pid:%d\n%!" (Thread.id (Thread.self ())) (Unix.getpid ());
     let end_time = Int64.of_float (Unix.gettimeofday () *. 1_000_000_000.) in
     write_duration t end_time;
     flush t;
