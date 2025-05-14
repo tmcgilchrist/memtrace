@@ -15,16 +15,18 @@ let bytes_before_ext_sample = Atomic.make max_int
 let draw_sampler_bytes t =
   Geometric_sampler.draw t.ext_sampler * (Sys.word_size / 8)
 
-let[@inline never] rec lock_tracer s =
-  (* Try unlocking mutex returning true if success or
-     Thread.yield () until it can acquire the mutex successfully.
-   *)
+let[@inline never] lock_tracer s =
   if (Atomic.get s.failed) then 
     false
-  else if Mutex.try_lock s.mutex then
-    true
-  else
-    (Thread.yield (); lock_tracer s)
+  (* During external allocations or closing, a thread may try to obtain a lock it already holds. 
+    In that case, Mutex.lock will throw an error and we can ignore it. *)
+  else begin 
+    try 
+      Mutex.lock s.mutex;  
+      true
+    with 
+      | _ -> false
+  end
 
 let[@inline never] unlock_tracer s =
   assert (not (Atomic.get s.failed));
@@ -33,7 +35,7 @@ let[@inline never] unlock_tracer s =
 let[@inline never] mark_failed s e =
   if (Atomic.compare_and_set s.failed false true) then 
     s.report_exn e; 
-    Mutex.unlock s.mutex
+  Mutex.unlock s.mutex
 
 let default_report_exn e =
   match e with
@@ -96,15 +98,16 @@ let start ?(report_exn=default_report_exn) ~sampling_rate trace =
         | exception e -> mark_failed s e) } in
   Atomic.set curr_active_tracer (Some s);
   Atomic.set bytes_before_ext_sample (draw_sampler_bytes s);
-  ignore (Gc.Memprof.start ~sampling_rate ~callstack_size:max_int tracker);
+  let _ = Gc.Memprof.start ~sampling_rate ~callstack_size:max_int tracker in 
   s
 
 let stop s =
+  Gc.Memprof.stop ();
   if (Atomic.compare_and_set s.stopped false true) then begin
-    Gc.Memprof.stop ();
     if lock_tracer s then begin
       try Trace.Writer.close s.trace with e ->
-        (Atomic.set s.failed true; s.report_exn e)
+        (Atomic.set s.failed true; s.report_exn e);
+      Mutex.unlock s.mutex
     end;
     Atomic.set curr_active_tracer None
   end
