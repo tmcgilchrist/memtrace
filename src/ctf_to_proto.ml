@@ -54,9 +54,10 @@ let micro_to_nanoseconds s = Int64.mul s 1000L
 
 (* takes CTF location codes and creates pprof locations *)
 let update_locs reader buf len functions locations string_table =
-  if len > Array.length buf then
-    (malformed_traces := !malformed_traces + 1;
-    raise (Malformed_trace "Backtrace buffer length exceeds buffer size"))
+  if len > Array.length buf then begin
+    malformed_traces := !malformed_traces + 1;
+    raise (Malformed_trace "Backtrace buffer length exceeds buffer size")
+  end
   else
     (* truncate the buffer to the length of the backtrace *)
     let truncated_buf = Array.sub buf 0 len in
@@ -158,6 +159,7 @@ let convert_events filename =
         ()
       | _ -> ())
     | Promote _ ->
+      (* The GO GC is not generational, so it doesn't have promotion events. *)
       time_end := Timedelta.to_int64 time_delta;
       ()
     | Collect _ ->

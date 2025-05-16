@@ -37,7 +37,6 @@ module Write = struct
   | Bytes
 
   let rec write_fully fd buf pos pos_end =
-    (*Printf.printf "write_fully pos %d pos_end %d\n" pos pos_end;*)
     if pos = pos_end then () else
       let written = Unix.write fd buf pos (pos_end - pos) in
       write_fully fd buf (pos + written) pos_end
@@ -46,10 +45,7 @@ module Write = struct
     write_fully fd b.buf 0 b.pos
 
   let write_fd_proto fd b =
-    Printf.printf "starting [write_fd_proto]\n";
-    write_fully fd b.buf b.pos (Bytes.length b.buf);
-    Printf.printf "finished [write_fd_proto]\n"
-
+    write_fully fd b.buf b.pos (Bytes.length b.buf)
 
   let put_raw_8 b i v = Bytes.unsafe_set b i (Char.unsafe_chr v)
   external put_raw_16_ne : Bytes.t -> int -> int -> unit = "%caml_bytes_set16u"

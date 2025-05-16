@@ -68,7 +68,7 @@ let start_tracing ~context ~sampling_rate ~filename ~trace_format =
 let stop_tracing t =
   match t with
   | CTF_tracer tracer -> Memprof_tracer.stop tracer
-  | Proto_tracer tracer -> Printf.printf "calling stop tracer\n%!"; Memprof_tracer_proto.stop tracer
+  | Proto_tracer tracer -> Memprof_tracer_proto.stop tracer
 
 let () =
   at_exit (
