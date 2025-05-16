@@ -10,7 +10,7 @@ homepage: "https://github.com/janestreet/memtrace"
 bug-reports: "https://github.com/janestreet/memtrace/issues"
 depends: [
   "dune" {>= "2.3"}
-  "ocaml" {>= "5.3.0" | >= "4.11.0" & < "5.0"}
+  "ocaml" {>= "5.2.1" | >= "4.11.0" & < "5.0"}
   "pbrt"
   "mach"
   "ctypes"
@@ -33,6 +33,3 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/janestreet/memtrace.git"
-pin-depends: [
-  ["mach.dev" "git+https://github.com/tmcgilchrist/mach.git#main"]
-]

@@ -1,3 +1,0 @@
-pin-depends: [
-  ["mach.dev" "git+https://github.com/tmcgilchrist/mach.git#main"]
-]
