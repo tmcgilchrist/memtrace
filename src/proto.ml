@@ -76,6 +76,14 @@ module IntTbl = Hashtbl.MakeSeeded (struct
   let equal (a : t) (b : t) = a = b
   end)
 
+module Int_pair = struct
+  type t = int * int
+  let hash (a, b) = a lxor (b * 65599)
+  let equal (a1, b1) (a2, b2) = a1 = a2 && b1 = b2
+end
+
+module IntPairTbl = Hashtbl.Make(Int_pair)
+
 
 module Obj_id = struct
   type t = int
@@ -184,9 +192,7 @@ type location = {
 type function_ = {
   id : int64;
   name : int64;
-  system_name : int64;
   filename : int64;
-  start_line : int64;
 }
 
 let loc_to_string (loc : location) =
@@ -221,17 +227,15 @@ type writer = {
   start_time : int64;
   mutable next_alloc_id : int;
 
-  (* I don't know if this is the most efficient way, works for now  *)
-  new_strs : string Stack.t;
+  mutable new_strs : string array;
   mutable strs_len : int64;
+  mutable new_strs_len : int;
   new_strs_buf : Bytes.t;
   mutable strings : (string, int64) Hashtbl.t;
 
-  (* TODO: improve: we may not need to maintain function and location lists, but it's not possible to write them as soon as we see them either. *)
-
   (* Function tracking *)
   functions : function_ Stack.t;
-  mutable function_ids : (string, int64) Hashtbl.t;  (* Maps function name to ID *)
+  mutable function_ids : (int64 * int64, int64) Hashtbl.t; (* Maps (fn name, filename) to ID *)
   mutable next_function_id : int64;
 
   (* Location tracking *)
@@ -248,21 +252,39 @@ module Writer = struct
   type t = writer
   exception Pid_changed
 
-  (* these strings are (probably) only accessed once *)
-  let init_strtbl t name =
-    let s = t.new_strs in
-    Stack.push "" s;
-    Stack.push "num_samples" s;
-    Stack.push "count" s;
-    Stack.push "alloc_size" s;
-    Stack.push "bytes" s;
-    Stack.push "source" s;
-    Stack.push "minor" s;
-    Stack.push "major" s;
-    Stack.push "external" s;
-    Stack.push "space" s;
-    Stack.push "words" s;
-    Stack.push name s
+  (* these strings are only accessed once *)
+  let write_strtbl t name =
+    let b = Write.of_bytes_proto t.new_strs_buf in
+    Write.write_string name b;
+    Write.key 6 Bytes b;
+    Write.write_string "words" b;
+    Write.key 6 Bytes b;
+    Write.write_string "space" b;
+    Write.key 6 Bytes b;
+    Write.write_string "external" b;
+    Write.key 6 Bytes b;
+    Write.write_string "major" b;
+    Write.key 6 Bytes b;
+    Write.write_string "minor" b;
+    Write.key 6 Bytes b;
+    Write.write_string "source" b;
+    Write.key 6 Bytes b;
+    Write.write_string "bytes" b;
+    Write.key 6 Bytes b;
+    Write.write_string "alloc_size" b;
+    Write.key 6 Bytes b;
+    Write.write_string "count" b;
+    Write.key 6 Bytes b;
+    Write.write_string "num_samples" b;
+    Write.key 6 Bytes b;
+    Write.write_string "" b;
+    Write.key 6 Bytes b;
+    Printf.printf "[writing strings] raw bytes written so far: \n%!";
+    for i = Write.get_pos b to (Write.get_end b)-1 do
+      Printf.printf "%02X " (Char.code (Bytes.get b.buf i))
+    done; 
+    Write.write_fd_proto t.dest b
+
 
   let[@inline] encode_nested f v e =
     let old_start = Write.get_pos e in
@@ -319,28 +341,31 @@ module Writer = struct
     Write.int_as_varint size encoder
 
   let flush t =
+    Printf.printf "[flush] entry\n%!";
     if t.pid <> t.getpid () then raise Pid_changed;
     let open Write in
     (* Flush newly seen strings *)
-    while not (Stack.is_empty t.new_strs) do
+    let i = ref t.new_strs_len in
+    while (!i > 0) do
       let b = Write.of_bytes_proto t.new_strs_buf in
       (* write until either we run out of buffer space or we finish writing all strings *)
       (* TODO: CHECK MAX_STRS_SIZE*)
-      while ((not (Stack.is_empty t.new_strs)) &&
-      Write.get_pos b > max_str_size) do
-        let str = Stack.pop t.new_strs in
+      while (!i > 0 && Write.get_pos b > max_str_size) do
+        let str = t.new_strs.(!i-1) in
         write_string str b;
         key 6 Bytes b;
-        (*Printf.printf "[flush] writing string: %s\n%!" str;
+        decr i;
+        Printf.printf "[flush] writing string: %s\n%!" str;
         Printf.printf "[flush] raw bytes written so far: \"%s\":\n%!" str;
         for i = get_pos b to (get_end b)-1 do
           Printf.printf "%02X " (Char.code (Bytes.get b.buf i))
         done; 
-        print_newline ();*) 
+        print_newline ();
       done;
-      (*Printf.printf "finished printing raw bytes, calling write\n%!";*)
+      Printf.printf "finished printing raw bytes, calling write\n%!";
       write_fd_proto t.dest b
     done;
+    t.new_strs_len <- 0;
     (* Flush new locations *)
     (*let i = ref 0 in
     while !i < t.new_locs_len do
@@ -360,11 +385,11 @@ module Writer = struct
       write_fd_proto t.dest b_loc;
     done;*)
     (* Flush actual events *)
-    (*Printf.printf "[flush] writing actual events. bytes: \n%!";
+    Printf.printf "[flush] writing actual events. bytes: \n%!";
     for i = get_pos t.encoder to (get_end t.encoder)-1 do
       Printf.printf "%02X " (Char.code (Bytes.get t.encoder.buf i))
     done;
-    print_newline ();*)
+    print_newline ();
     write_fd_proto t.dest t.encoder;
     (* reset location and main buffers *)
     (*t.new_locs_len <- 0;
@@ -402,18 +427,18 @@ module Writer = struct
     Write.key 1 Write.Varint encoder;
     Write.write_varint f.name encoder;
     Write.key 2 Write.Varint encoder;
-    Write.write_varint f.system_name encoder;
-    Write.key 3 Write.Varint encoder;
     Write.write_varint f.filename encoder;
-    Write.key 4 Write.Varint encoder;
-    Write.write_varint f.start_line encoder;
-    Write.key 5 Write.Varint encoder
+    Write.key 4 Write.Varint encoder
 
   let encode_functions t =
     while not (Stack.is_empty t.functions) do
       let f = Stack.pop t.functions in
       encode_nested encode_function f t.encoder;
       Write.key 5 Write.Bytes t.encoder (* Field 5 of Profile = functions *)
+    done;
+    Printf.printf "[funcs] raw bytes written so far: \n%!";
+    for i = Write.get_pos t.encoder to (Write.get_end t.encoder)-1 do
+      Printf.printf "%02X " (Char.code (Bytes.get t.encoder.buf i))
     done
   
   let encode_mapping () e = 
@@ -447,12 +472,14 @@ module Writer = struct
       sample_rate = info.sample_rate;
       start_time = info.start_time;
       next_alloc_id = 0;
-      new_strs = Stack.create ();
+      new_strs = [| |];
       strs_len = 12L; (* after adding initial strings *)
       new_strs_buf = Bytes.make max_packet_size '\042';
-      strings = Hashtbl.create 100;
+      new_strs_len = 0;
+      (*todo: see how ctf handles this *)
+      strings = Hashtbl.create 64;
       functions = Stack.create ();
-      function_ids =  Hashtbl.create 100;
+      function_ids =  Hashtbl.create 64;
       next_function_id = 1L;
       locations = ref [];
       new_locs_len = 0;
@@ -460,7 +487,7 @@ module Writer = struct
       loc_table = RawBacktraceEntryTable.create 100;
       encoder = Write.of_bytes_proto (Bytes.make buffer_size '\042');
     } in
-    init_strtbl writer info.executable_name;
+    write_strtbl writer info.executable_name;
     encode_nested (encode_mapping) () writer.encoder;
     Write.key 3 Write.Bytes writer.encoder; (* Field 3 of Profile = Mapping *)
     encode_nested (encode_sample_type1) () writer.encoder;
@@ -472,20 +499,32 @@ module Writer = struct
 
   (* register a string and return its ID *)
   let register_string t s =
+    Printf.printf "entering [register_string] %s\n" s;
     match Hashtbl.find_opt t.strings s with
     | Some id -> id
     | None ->
         let id = t.strs_len in
         Hashtbl.add t.strings s id;
         t.strs_len <- Int64.add t.strs_len 1L;
-        Stack.push s t.new_strs;
-        (*Printf.printf "[register_string] ID %Ld → %s\n" id s;*)
+        let alen = Array.length t.new_strs in
+        if t.new_strs_len >= alen then begin 
+          let new_len = if alen = 0 then 32 else alen * 2 in
+          let strs = Array.make new_len s in
+          Array.blit t.new_strs 0 strs 0 alen;
+          t.new_strs <- strs;
+          t.new_strs_len <- alen + 1;
+        end else begin
+          t.new_strs.(t.new_strs_len) <- s;
+          t.new_strs_len <- t.new_strs_len + 1
+        end;
+        Printf.printf "[register_string] ID %Ld → %s\n" id s;
         id
 
   (* Register a function and return its ID *)
-  let register_function t name filename =
+  (*let register_function t name filename =
     let fn_id = t.next_function_id in
     t.next_function_id <- Int64.add fn_id 1L;
+    Hashtbl.add t.function_ids (name ^ "_" ^ filename) fn_id;
     Stack.push {
       id = fn_id;
       name = register_string t name;
@@ -493,6 +532,19 @@ module Writer = struct
       filename = register_string t filename;
       start_line = 0L; (* TODO: check *)
     } t.functions;
+    fn_id*)
+
+  let register_function t fn_idx file_idx = 
+    Printf.printf "[register_function] %Ld %Ld\n" fn_idx file_idx;
+    let fn_id = t.next_function_id in
+    t.next_function_id <- Int64.add fn_id 1L;
+    Hashtbl.add t.function_ids (fn_idx, file_idx) fn_id;
+    Stack.push {
+      id = fn_id;
+      name = fn_idx;
+      filename = file_idx
+    } t.functions;
+    Printf.printf "[register_function] DONE %Ld %Ld\n" fn_idx file_idx;
     fn_id
 
   (* Extract location info from a raw backtrace and add it to the location array *)
@@ -514,10 +566,14 @@ module Writer = struct
         | Some { filename; line_number; start_char; _ } ->
           is_folded :=  Slot.is_inline slot;
           let function_name = match Slot.name slot with Some n -> n | _ -> "??" in
+          (*let fn_name = function_name ^ "_" ^ filename in*)
+          let fn_idx = register_string t function_name in
+          let file_idx = register_string t filename in
           (* check if we have seen this function *)
-          let function_id = match Hashtbl.find_opt t.function_ids function_name with
+          (*let function_id = match Hashtbl.find_opt t.function_ids fn_name with*)
+          let function_id = match Hashtbl.find_opt t.function_ids (fn_idx, file_idx) with
             | Some fn_id -> fn_id
-            | None -> register_function t function_name filename
+            | None -> (*register_function t function_name filename*) register_function t fn_idx file_idx
           in
           let new_line = { function_id; line = Int64.of_int line_number; column = Int64.of_int start_char; } in
           Stack.push new_line lines
@@ -536,7 +592,7 @@ module Writer = struct
           Printf.printf "%02X " (Char.code (Bytes.get t.encoder.buf i))
       done;*)
 
-      (*Printf.printf "[update_locs] added new loc to list. new list len = %d\n" (List.length !(t.locations));*)
+      Printf.printf "[update_locs] added new loc to list. new list len = %d\n" (List.length !(t.locations));
       (* check if we need to flush the buffer *)
       entry_as_int
     end
@@ -598,17 +654,17 @@ module Writer = struct
     end;
     let i = ref 0 in
     while !i < t.new_locs_len do
-      (*Printf.printf "initialising new location buffer to write %d new locs\n%!" t.new_locs_len;*)
+      Printf.printf "initialising new location buffer to write %d new locs\n%!" t.new_locs_len;
       while ((!i < t.new_locs_len) && (Write.get_pos t.loc_encoder > max_loc_size)) do
         encode_loc (List.nth !(t.locations) !i) t.loc_encoder;
         Write.key 4 Write.Bytes t.loc_encoder;
-        (*Printf.printf "[flush] writing location %d: %s\n%!" (!i) (loc_to_string (List.nth !(t.locations) !i));*)
+        Printf.printf "[flush] writing location %d: %s\n%!" (!i) (loc_to_string (List.nth !(t.locations) !i));
         incr i;
       done;
-      (*Printf.printf "[flush] after_locs raw bytes written so far: \n%!";
+      Printf.printf "[flush] after_locs raw bytes written so far: \n%!";
       for i = Write.get_pos t.loc_encoder to (Write.get_end t.loc_encoder)-1 do
         Printf.printf "%02X " (Char.code (Bytes.get t.loc_encoder.buf i))
-      done;*)
+      done;
       if (Write.get_pos t.loc_encoder > max_loc_size) then Write.write_fd_proto t.dest t.loc_encoder;
     done;
     t.new_locs_len <- 0;
@@ -630,6 +686,10 @@ module Writer = struct
     let end_time = Int64.of_float (Unix.gettimeofday () *. 1_000_000_000.) in
     write_duration t end_time;
     flush t;
+    (*Printf.printf "functions seen: \n%!";
+    Hashtbl.iter (fun (key1,key2) value ->
+    Printf.printf "(%Ld, %Ld) → %Ld\n" key1 key2 value
+    ) t.function_ids;*)
     Unix.close t.dest
   end
 

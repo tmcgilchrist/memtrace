@@ -36,6 +36,8 @@ In future when writing the protobuf data directly we will need to lookup address
 
 When viewing a flamegraph in pprof, you can right-click on a location and view it's source code: another feature that uses information from the mappings that are missing in our conversion tool.
 
+Lastly, memtrace tracks deallocations and promotions. Memtrace-viewer then uses this information to display how much memory was live at any point (timestamp) during the program. However, Go does not have a generational GC and does not track promotions. Thus, Pprof does not visualise this information either. While Pprof displays a directed graph of memory that is "in-use", this seems like a snapshot of the memory profile taken at a particular instant (usually the end of the program), rather than tracking live memory accross the entire run. Thus, our conversion tool or writer do not track collection or promotion events either. Some more information about the Go GC can be found in the next section.
+
 ## On the Go GC
 
 Since the premise of this work is reusing the Go tooling and visualisations, it is useful to understand what kind of Garbage Collector Go uses.
@@ -76,6 +78,8 @@ Terminology:
  * object graph: *objects* and *pointers* together from the *object graph*.
  * mutator: the users program, so called because from the *collector's* poin t of view it simply mutates the graph of objects.
  * stop-the-world collection: a technique for *collection* during which all *mutator threads* are halted
+
+
 
 References:
  * [Getting to Go: The Journey of Go's Garbage Collector](https://go.dev/blog/ismmkeynote)
