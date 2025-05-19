@@ -106,7 +106,7 @@ let loc_to_string (loc : location) =
 let function_to_string (f : function_) =
   Printf.sprintf "id: %Ld, name: %Ld, filname: %Ld\n" f.id f.name f.filename
 
-let buffer_size = 1 lsl 15 (* this will also change once we start streaming pprof data *)
+let buffer_size = 1 lsl 15 
 
 let max_loc_size = 4096
 let max_backtrace = 4096
@@ -262,32 +262,6 @@ module Writer = struct
     (* reset location and main buffers *)
     t.new_locs_len <- 0;
     t.encoder <- Write.of_bytes_proto t.encoder.buf
-
-  (*let encode_loc t id lines is_folded =
-    if not (Write.get_pos t.loc_encoder > max_loc_size) then flush t;
-    let old_start = Write.get_pos t.encoder in
-    Write.write_varint id t.encoder;
-    Write.key 1 Write.Varint t.encoder;
-    Write.write_varint 1L t.encoder; (* only one mapping for now *)
-    Write.key 2 Write.Varint t.encoder;
-    Write.write_varint (get_next_addr ()) t.encoder;
-    Write.key 3 Write.Varint t.encoder;
-    while not (Stack.is_empty lines) do
-      (* every line is a nested field *)
-      let start_bfr_line = Write.get_pos t.encoder in
-      let line = Stack.pop lines in
-      encode_line line t.encoder;
-      let start_afr_line = Write.get_pos t.encoder in
-      let size = start_bfr_line - start_afr_line in
-      Write.int_as_varint size t.encoder;
-      Write.key 4 Write.Bytes t.encoder;
-    done;
-    Write.bool is_folded t.encoder;
-    Write.key 5 Write.Varint t.encoder;
-    let new_start = Write.get_pos t.encoder in
-    let size = old_start - new_start in
-    Write.int_as_varint size t.encoder;
-    Write.key 4 Bytes t.encoder*)
 
   let encode_function (f : function_) encoder =
     Write.write_varint f.id encoder;
@@ -460,15 +434,6 @@ module Writer = struct
       (* add the location to the location array *)
       let newloc = { id = entry_as_int; mapping_id = 1L; line=lines; is_folded = !is_folded; } in 
       add_location t newloc;
-      (*t.locations :=  { id = entry_as_int; mapping_id = 1L; address = get_next_addr (); line=lines; is_folded = !is_folded; } :: !(t.locations);*)
-      (*let old_start = Write.get_pos t.encoder in
-      Printf.printf "[flush] writing location: %s\n%!" (loc_to_string newloc);
-      encode_loc t entry_as_int lines !is_folded;
-      let new_start = Write.get_pos t.encoder in
-      Printf.printf "[encode_loc] raw bytes written so far:\n%!";
-        for i = new_start to (old_start) do
-          Printf.printf "%02X " (Char.code (Bytes.get t.encoder.buf i))
-      done;*)
       entry_as_int
     end
     else
@@ -512,27 +477,6 @@ module Writer = struct
     Write.key 2 Write.Bytes t.encoder; (* Field 2 of Profile = Sample *)
     (* now write all the functions we saw in this sample *)
     encode_functions t;
-    (*let i = ref 0 in
-    while !i < t.new_locs_len do
-      Printf.printf "initialising new location buffer to write %d new locs\n%!" t.new_locs_len;
-      while ((!i < t.new_locs_len) && (Write.get_pos t.loc_encoder > max_loc_size)) do
-        encode_loc (List.nth !(t.locations) !i) t.loc_encoder;
-        Write.key 4 Write.Bytes t.loc_encoder;
-        Printf.printf "[flush] writing location %d: %s\n%!" (!i) (loc_to_string (List.nth !(t.locations) !i));
-        incr i;
-      done;
-      Printf.printf "[flush] after_locs raw bytes written so far: \n%!";
-      for i = Write.get_pos t.loc_encoder to (Write.get_end t.loc_encoder)-1 do
-        Printf.printf "%02X " (Char.code (Bytes.get t.loc_encoder.buf i))
-      done;
-      if (Write.get_pos t.loc_encoder > max_loc_size) then begin
-        Write.write_fd_proto t.dest t.loc_encoder;
-        t.loc_encoder <- Write.of_bytes_proto t.loc_encoder.buf
-      end;
-    done;
-    t.new_locs_len <- 0;
-    t.locations := [];
-    t.loc_encoder <- Write.of_bytes_proto t.loc_encoder.buf;*)
     id
 
   let put_collect _ _ _ = ()
