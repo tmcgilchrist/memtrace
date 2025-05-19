@@ -36,7 +36,7 @@ In future when writing the protobuf data directly we will need to lookup address
 
 When viewing a flamegraph in pprof, you can right-click on a location and view it's source code: another feature that uses information from the mappings that are missing in our conversion tool.
 
-Lastly, memtrace tracks deallocations and promotions. Memtrace-viewer then uses this information to display how much memory was live at any point (timestamp) during the program. However, Go does not have a generational GC and does not track promotions. Thus, Pprof does not visualise this information either. While Pprof displays a directed graph of memory that is "in-use", this seems like a snapshot of the memory profile taken at a particular instant (usually the end of the program), rather than tracking live memory accross the entire run. Thus, our conversion tool or writer do not track collection or promotion events either. Some more information about the Go GC can be found in the next section.
+Lastly, memtrace tracks deallocations and promotions. Memtrace-viewer then uses this information to display how much memory was live at any point (timestamp) during the program. However, Go does not have a generational GC and does not track promotions. As Pprof is built for Go lang programs, it does not visualise this information either. While Pprof displays a directed graph of memory that is "in-use", this seems like a snapshot of the memory profile taken at a particular instant (usually the end of the program), rather than tracking live memory accross the entire run. Thus, our conversion tool or writer do not track collection or promotion events either. Some more information about the Go GC can be found in the next section.
 
 ## On the Go GC
 
