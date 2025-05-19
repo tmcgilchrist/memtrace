@@ -1,18 +1,6 @@
 open Profile
 open Trace
 
-
-(* using dummy info for now, as we dont have mapping
- information. Addresses are non-zero so pprof does 
- not throw errors *)
-let start_addr = 0x7F00000000L
-let end_addr = 0x7F40000000L
-let offset = 20L
-let curr_addr = ref 0x7F0000000L
-let get_next_addr () =
-  curr_addr := Int64.add !curr_addr offset;
-  !curr_addr
-
 let loc_map = Hashtbl.create 100 (* maps location_ids to locations *)
 let fn_map = Hashtbl.create 100 (* maps function names to functions *)
 let next_fnid = ref 1L
@@ -38,8 +26,8 @@ exception Malformed_trace of string
 find the main binary/executable name. But we don't have actual mapping info so we use a dummy *)
 let create_dummy_mapping reader string_table = {
   id = 1L;
-  memory_start = start_addr;
-  memory_limit = end_addr;
+  memory_start = 0L;
+  memory_limit = 0L;
   file_offset = 0L; 
   filename = get_or_add_string ((Reader.info reader).executable_name) string_table;
   build_id = 0L;
@@ -101,12 +89,10 @@ let update_locs reader buf len functions locations string_table =
           lines := !lines @ [line_info];
         ) ctf_locs;
 
-        (* Create and add location 
-          NOTE: Some (CTF) location codes map to an empty list, memtrace ignores them so we do too *)
         let loc = {
           id = Int64.of_int (loc_code :> int);
-          mapping_id = 1L; (* dummy mapping for now *)
-          address = get_next_addr (); (* dummy addr for now *)
+          mapping_id = 1L; 
+          address = 0L; (* dummy addr *)
           line = !lines;
           is_folded = (List.length !lines > 1);
         } in
@@ -197,7 +183,6 @@ let convert_file fd output_file =
     Printf.printf "Warning: %d malformed samples skipped\n" !malformed_traces;
 
   (* Write the profile to a file *)
-
   let out_fd = Unix.openfile output_file [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC] 0o644 in
   let encoder = Pbrt.Encoder.create () in
   encode_pb_profile profile encoder;
