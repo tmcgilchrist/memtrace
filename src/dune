@@ -3,7 +3,7 @@
  (public_name memtrace)
  (flags
   (:standard -w -27-32-69))           ; Ignore unused code while hacking
- (libraries unix threads pbrt ctypes mach))
+ (libraries unix threads pbrt ctypes))
 
 (rule
  (targets profile.ml profile.mli)
