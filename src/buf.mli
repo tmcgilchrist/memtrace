@@ -1,14 +1,15 @@
 module Write : sig
   (** A [t] is a subsequence of a Bytes.t, to be written sequentially.
-  
-    None of the operations below allocate or resize the underlying byte buffer -
-    the underlying Bytes.t is managed by the caller, and may be shared between
-    mutiple [t]s *)
+
+  None of the operations below allocate or resize the underlying byte buffer -
+  the underlying Bytes.t is managed by the caller, and may be shared between
+  mutiple [t]s *)
   type t = private {
     buf : Bytes.t;
     mutable pos : int;
     pos_end : int;
   }
+
   type payload_kind = | Varint |  Bits32 | Bits64 | Bytes 
 
   val of_bytes : Bytes.t -> t
