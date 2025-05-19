@@ -111,4 +111,3 @@ let () =
     Printf.fprintf stderr "Usage: %s <trace file>\n" Sys.executable_name
   else
     identify Sys.argv.(1)
-    
