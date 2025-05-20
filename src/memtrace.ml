@@ -129,4 +129,3 @@ module Geometric_sampler = Geometric_sampler
 
 module Ctf_to_proto = Ctf_to_proto
 module Memprof_tracer_proto = Memprof_tracer_proto
-module Memory_map = Memory_map

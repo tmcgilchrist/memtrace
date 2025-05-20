@@ -32,8 +32,8 @@ let[@inline never] unlock_tracer s =
   Mutex.unlock s.mutex
 
 let[@inline never] mark_failed s e =
-  if (Atomic.compare_and_set s.failed false true) then 
-    s.report_exn e; 
+  if (Atomic.compare_and_set s.failed false true) then
+    s.report_exn e;
     Mutex.unlock s.mutex
 
 let default_report_exn e =
@@ -97,7 +97,7 @@ let start ?(report_exn=default_report_exn) ~sampling_rate trace =
         | exception e -> mark_failed s e) } in
   Atomic.set curr_active_tracer (Some s);
   Atomic.set bytes_before_ext_sample (draw_sampler_bytes s);
-  let profile = Gc.Memprof.start ~sampling_rate ~callstack_size:max_int tracker in 
+  let profile = Gc.Memprof.start ~sampling_rate ~callstack_size:max_int tracker in
   s.profile <- Some profile;
   s
 

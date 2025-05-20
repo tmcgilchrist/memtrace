@@ -20,11 +20,11 @@ let[@inline never] lock_tracer s =
   if (Atomic.get s.failed) then
     false
   else begin
-    try 
+    try
       Mutex.lock s.mutex;
       true
-    with 
-    | _ -> false 
+    with
+    | _ -> false
   end
 
 let[@inline never] unlock_tracer s =
@@ -32,8 +32,8 @@ let[@inline never] unlock_tracer s =
   Mutex.unlock s.mutex
 
 let[@inline never] mark_failed s e =
-  if (Atomic.compare_and_set s.failed false true) then 
-    s.report_exn e; 
+  if (Atomic.compare_and_set s.failed false true) then
+    s.report_exn e;
   Mutex.unlock s.mutex
 
 let default_report_exn e =

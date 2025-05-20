@@ -1,7 +1,3 @@
-type line
-type location
-type function_
-
 (** Encoder and decoder for Memtrace traces *)
 
 (** Timestamps *)

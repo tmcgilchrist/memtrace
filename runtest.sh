@@ -56,16 +56,16 @@ dune exec bin/convert.exe "$TRACEFILE".ctf "$TRACEFILE".pb
 if [ "$RUN_VIEWERS" = true ]; then
     echo "Running viewers..."
     gzip -f "$TRACEFILE".pb  # Added -f to force overwrite if needed
-    
+
     # First switch OPAM environment
     echo "Switching OPAM environment..."
     opam switch temp
     eval $(opam env)
-    
+
     # Then run the viewers
     echo "Starting pprof..."
     GODEBUG=pprofdebug=1 pprof -http=":" "$TRACEFILE".pb.gz &
-    
+
     echo "Starting memtrace-viewer..."
     memtrace-viewer "$TRACEFILE".ctf
 fi

@@ -99,14 +99,7 @@ type function_ = {
   filename : int64;
 }
 
-let loc_to_string (loc : location) =
-  let lines = Stack.fold (fun acc line -> acc ^ Printf.sprintf "\n%Ld: %Ld-%Ld" line.function_id line.line line.column) "" loc.line in
-  Printf.sprintf "id: %Ld, mapping_id: %Ld, address: , is_folded: %b lines: %s" loc.id loc.mapping_id loc.is_folded lines
-
-let function_to_string (f : function_) =
-  Printf.sprintf "id: %Ld, name: %Ld, filname: %Ld\n" f.id f.name f.filename
-
-let buffer_size = 1 lsl 15 
+let buffer_size = 1 lsl 15
 
 let max_loc_size = 4096
 let max_backtrace = 4096

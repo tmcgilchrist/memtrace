@@ -1,28 +1,12 @@
 (library
  (name memtrace)
  (public_name memtrace)
- (flags
-  (:standard -w -27-32-69))           ; Ignore unused code while hacking
- (libraries unix threads pbrt ctypes))
+ (libraries unix threads pbrt))
 
+;; Generate protobuf serialisation
 (rule
  (targets profile.ml profile.mli)
  (deps
    (:proto profile.proto))
  (action
    (run ocaml-protoc %{proto} --binary --ml_out .)))
-
-;; Simplify the range of values used for Config.system
-;; See https://github.com/ocaml/ocaml/pull/12405
-(rule
- (deps linux_memory_map.ml)
- (target memory_map.ml)
- (enabled_if (= %{system} "linux"))
- (action (copy %{deps} %{target})))
-
-(rule
- (deps macos_memory_map.ml)
- (target memory_map.ml)
- (enabled_if (= %{system} "macosx"))
- (action (copy %{deps} %{target})))
-

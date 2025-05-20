@@ -61,4 +61,3 @@ module Geometric_sampler = Geometric_sampler
 (** Temporarily export CTF to Proto conversion module (For testing) *)
 module Ctf_to_proto = Ctf_to_proto
 module Memprof_tracer_proto = Memprof_tracer_proto
-module Memory_map = Memory_map

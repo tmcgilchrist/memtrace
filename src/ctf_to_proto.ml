@@ -12,23 +12,16 @@ let get_or_add_string s str_table =
     str_table := !str_table @ [s];
     Int64.of_int (List.length !str_table - 1)
 
-let get_or_add_fnid f fun_table =
-  match List.find_index ((=) f) !fun_table with
-    | Some idx -> (Int64.of_int idx, true)
-    | None ->
-      fun_table := !fun_table @ [f];
-      (Int64.of_int (List.length !fun_table - 1), false)
-
 let malformed_traces = ref 0
 exception Malformed_trace of string
 
-(* without this mapping, pprof cannot 
+(* without this mapping, pprof cannot
 find the main binary/executable name. But we don't have actual mapping info so we use a dummy *)
 let create_dummy_mapping reader string_table = {
   id = 1L;
   memory_start = 0L;
   memory_limit = 0L;
-  file_offset = 0L; 
+  file_offset = 0L;
   filename = get_or_add_string ((Reader.info reader).executable_name) string_table;
   build_id = 0L;
   has_functions = false;
@@ -91,7 +84,7 @@ let update_locs reader buf len functions locations string_table =
 
         let loc = {
           id = Int64.of_int (loc_code :> int);
-          mapping_id = 1L; 
+          mapping_id = 1L;
           address = 0L; (* dummy addr *)
           line = !lines;
           is_folded = (List.length !lines > 1);
@@ -107,7 +100,7 @@ let convert_events filename =
   let samples = ref [] in
   let string_table = ref [""; "source"; "minor"; "major"; "external"] in
   let locations = ref [] in
-  let functions = ref [] in 
+  let functions = ref [] in
   let sample_types = [
   { type_ = get_or_add_string "num_samples" string_table; unit_ = get_or_add_string "count" string_table };
   { type_ = get_or_add_string "alloc_size" string_table; unit_ = get_or_add_string "bytes" string_table } (* confirm unit !! *)
@@ -121,7 +114,7 @@ let convert_events filename =
   Reader.iter reader (fun time_delta ev ->
     match ev with
     | Alloc { length; nsamples; source; backtrace_buffer; backtrace_length; _ } ->
-      (try 
+      (try
         let loc_ids = update_locs reader backtrace_buffer backtrace_length functions locations string_table in
         let size_in_bytes = length * word_size in
         let vals = [Int64.of_int nsamples; Int64.of_int size_in_bytes] in
@@ -160,19 +153,19 @@ let convert_events filename =
   {
     sample_type = sample_types;
     sample = !samples;
-    mapping = [dummy_mapping]; 
+    mapping = [dummy_mapping];
     location = !locations;
     function_ = !functions;
     string_table = !string_table;
     (* Use these fields to specify function names we want to ignore from or keep in stack traces. Currently not used but could be useful in ignoring internal functions or functions related to the trace writer itself. *)
-    drop_frames = 0L; 
-    keep_frames = 0L; 
-    time_nanos = start_time; 
-    duration_nanos = duration; 
+    drop_frames = 0L;
+    keep_frames = 0L;
+    time_nanos = start_time;
+    duration_nanos = duration;
     period_type = Some period_type;
     period = Int64.of_float (1.0 /. info.sample_rate);
-    comment = []; 
-    default_sample_type = 0L; 
+    comment = [];
+    default_sample_type = 0L;
     doc_url = 0L;
   }
 
@@ -189,4 +182,4 @@ let convert_file fd output_file =
   let bytes = Pbrt.Encoder.to_bytes encoder in
   let _ = Unix.write out_fd bytes 0 (Bytes.length bytes) in
 
-  Unix.close out_fd  
+  Unix.close out_fd
