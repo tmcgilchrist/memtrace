@@ -38,15 +38,15 @@ let rec long_bt = function
 
 let go () =
   let filename = Filename.temp_file "memtrace" "ctf" in
-  let t = Memtrace.start_tracing ~context:(Some "ctx") ~sampling_rate:0.1 ~filename in
+  let t = Memtrace.start_tracing ~context:(Some "ctx") ~sampling_rate:0.1 ~filename ~trace_format:CTF in
   leak (Array.make 4242 42);
   for _i = 1 to 10 do
     let n = long_bt 10_000 in
     assert (n > 0);
   done;
   for _i = 1 to 1000 do
-    Option.iter Memtrace.External.free
-      (Memtrace.External.alloc ~bytes:((Sys.word_size / 8) * 7))
+    Option.iter Memtrace.CTF_tracer.ext_free
+      (Memtrace.CTF_tracer.ext_alloc ~bytes:((Sys.word_size / 8) * 7))
   done;
   Memtrace.stop_tracing t;
   let r = Memtrace.Trace.Reader.open_ ~filename in

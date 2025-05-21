@@ -1,4 +1,4 @@
-(executables (names test trace copy fork geom_sampler) (libraries memtrace))
+(executables (names test trace copy fork geom_sampler convert_test) (libraries memtrace qcheck))
 
 (rule
   (alias runtest)
@@ -11,6 +11,10 @@
 (rule
   (alias runtest)
   (action (run ./fork.exe)))
+
+(rule
+  (alias runtest)
+  (action (run ./convert_test.exe)))
 
 (rule (action (with-stdout-to geom_sampler.out (run ./geom_sampler.exe))))
 

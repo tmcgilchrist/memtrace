@@ -1,16 +1,3 @@
-module Location : sig
-  type t = {
-    filename : string;
-    line : int;
-    start_char : int;
-    end_char : int;
-    defname : string;
-  }
-
-  val to_string : t -> string
-  val unknown : t
-end
-
 module Writer : sig
   type t
   val create : unit -> t

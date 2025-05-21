@@ -14,4 +14,7 @@
  (synopsis "Streaming client for Memprof")
  (description "Generates compact traces of a program's memory use.")
  (depends
-  (ocaml (>= 4.11.0))))
+  (ocaml (or (>= 5.3.0) (and (>= 4.11.0) (< 5.0))))
+   pbrt
+   ocaml-protoc
+   (qcheck :with-test)))

@@ -1,4 +1,3 @@
-
 module Writer : sig
   type t
   val create : unit -> t

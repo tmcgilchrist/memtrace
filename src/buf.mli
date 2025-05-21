@@ -10,14 +10,19 @@ module Write : sig
     pos_end : int;
   }
 
+  type payload_kind = | Varint |  Bits32 | Bits64 | Bytes
+
   val of_bytes : Bytes.t -> t
   val of_bytes_sub : Bytes.t -> pos:int -> pos_end:int -> t
   val remaining : t -> int
+  val of_bytes_proto : Bytes.t -> t
+  val get_end : t -> int
 
   (** [write_fd fd b] writes the bytes written to b to the fd.
 
       No bufs are invalidated *)
   val write_fd : Unix.file_descr -> t -> unit
+  val write_fd_proto : Unix.file_descr -> t -> unit
 
   (** Writing to a buf. All types are written little-endian.
       All functions raise Overflow if there is insufficient space remaining *)
@@ -53,6 +58,15 @@ module Write : sig
   type position_float = private int
   val skip_float : t -> position_float
   val update_float : t -> position_float -> float -> unit
+
+  val write_varint : int64 -> t -> unit
+  val int_as_varint : int -> t -> unit
+  val write_string : string -> t -> unit
+  val bool : bool -> t -> unit
+
+  val key : int -> payload_kind -> t -> unit
+  val get_pos : t -> int
+
 end
 
 module Read : sig
