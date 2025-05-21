@@ -45,8 +45,8 @@ let go () =
     assert (n > 0);
   done;
   for _i = 1 to 1000 do
-    Option.iter Memtrace.External.free
-      (Memtrace.External.alloc ~bytes:((Sys.word_size / 8) * 7))
+    Option.iter Memtrace.CTF_tracer.ext_free
+      (Memtrace.CTF_tracer.ext_alloc ~bytes:((Sys.word_size / 8) * 7))
   done;
   Memtrace.stop_tracing t;
   let r = Memtrace.Trace.Reader.open_ ~filename in

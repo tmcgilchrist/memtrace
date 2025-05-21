@@ -71,7 +71,6 @@ Another reason for a generational GC is to reduce the amount of time a program p
 
 Precision refers to how the GC tracks the root objects and what objects are retained at the end of a collection cycle. A *stop-the-world* collector gains maximum precision (all unreachable objects are collected) at the expense of any concurrency with the mutator. This seems at odds with the concurrent collector.
 
-
 Terminology:
  * object: a dynamically allocated piece of memory that contains one or more Go values.
  * pointer: a value that is an *address* in memory, typically of an *object*.
@@ -79,9 +78,8 @@ Terminology:
  * mutator: the users program, so called because from the *collector's* poin t of view it simply mutates the graph of objects.
  * stop-the-world collection: a technique for *collection* during which all *mutator threads* are halted
 
-
-
 References:
  * [Getting to Go: The Journey of Go's Garbage Collector](https://go.dev/blog/ismmkeynote)
  * [A Guide to the Go Garbage Collector](https://tip.golang.org/doc/gc-guide)
  * [golang-nuts post by Ian Lance Taylor](https://groups.google.com/g/golang-nuts/c/KJiyv2mV2pU)
+

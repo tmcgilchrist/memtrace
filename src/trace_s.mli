@@ -23,20 +23,6 @@ module Timedelta : sig
   val offset : Timestamp.t -> t -> Timestamp.t
 end
 
-(* (\** Source locations in the traced program *\) *)
-(* module Location : sig *)
-(*   type t = { *)
-(*     filename : string; *)
-(*     line : int; *)
-(*     start_char : int; *)
-(*     end_char : int; *)
-(*     defname : string; *)
-(*   } *)
-
-(*   val to_string : t -> string *)
-(*   val unknown : t *)
-(* end *)
-
 (** Identifiers to represent allocations *)
 module Obj_id : sig
   type t = int
@@ -145,19 +131,40 @@ module type Writer = sig
   val close : t -> unit
 end
 
-(* (\** Reading traces *\) *)
-(* module Reader : sig *)
-(*   type t *)
+(** Construct a trace writer from [Writer].
 
-(*   val create : Unix.file_descr -> t *)
-(*   val info : t -> Info.t *)
-(*   val lookup_location_code : t -> Location_code.t -> Location.t list *)
+    Two implementations are provided for CTF and Pprof (protocol buffers)
+    trace formats.
+ *)
+module Make (W : Writer) :
+  sig
+    type t
+    val active_tracer : unit -> t option
 
-(*   (\** Iterate over a trace *\) *)
-(*   val iter : t -> ?parse_backtraces:bool -> (Timedelta.t -> Event.t -> unit) -> unit *)
+    val start :
+      ?report_exn:(exn -> unit) ->
+      ?context:string -> sampling_rate:float -> Unix.file_descr -> t
 
-(*   (\** Convenience functions for accessing traces stored in files *\) *)
-(*   val open_ : filename:string -> t *)
-(*   val size_bytes : t -> int64 *)
-(*   val close : t -> unit *)
-(* end *)
+    val stop : t -> unit
+
+    type ext_token = int
+    val ext_alloc : bytes:int -> int option
+    val ext_free : int -> unit
+  end
+
+(** Reading traces *)
+module type Reader = sig
+  type t
+
+  val create : Unix.file_descr -> t
+  val info : t -> Info.t
+  val lookup_location_code : t -> Location_code.t -> Location.t list
+
+  (** Iterate over a trace *)
+  val iter : t -> ?parse_backtraces:bool -> (Timedelta.t -> Event.t -> unit) -> unit
+
+  (** Convenience functions for accessing traces stored in files *)
+  val open_ : filename:string -> t
+  val size_bytes : t -> int64
+  val close : t -> unit
+end

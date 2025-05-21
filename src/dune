@@ -1,6 +1,13 @@
 (library
  (name memtrace)
  (public_name memtrace)
+ (modules backtrace_codec buf ctf_to_proto
+          geometric_sampler location_codec
+          location
+          trace_s
+          proto profile
+          trace
+          memtrace)
  (libraries unix threads pbrt))
 
 ;; Generate protobuf serialisation

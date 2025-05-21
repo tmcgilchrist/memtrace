@@ -1,60 +1,19 @@
+(* This implements the encoder for memtrace format based on `profile.proto` protobuf format.
+   The format is loosely based on the Go implementation.
+
+   TODO Describe the specific Sample types used and how they map to OCaml GC events.
+*)
 open Buf
 
-(** Types of allocation *)
-module Allocation_source = struct
-  type t = Minor | Major | External
-  end
+module Timestamp = Trace_s.Timestamp
+module Timedelta = Trace_s.Timedelta
+module Location = Location
+module Location_code = Trace_s.Location_code
 
-module Info = struct
-  type t = {
-    sample_rate : float;
-    word_size : int;
-    executable_name : string;
-    host_name : string;
-    ocaml_runtime_params : string;
-    pid : Int64.t;
-    start_time : int64;
-    context : string option;
-    }
-  end
-
-(* Time since the epoch *)
-module Timestamp = struct
-  type t = int64
-
-  let of_int64 t = t
-  let to_int64 t = t
-
-  let to_float t =
-    (Int64.to_float t) /. 1_000_000.
-
-  let of_float f =
-    f *. 1_000_000. |> Int64.of_float
-
-  let now () = of_float (Unix.gettimeofday ())
-  end
-
-(* Time since the start of the trace *)
-module Timedelta = struct
-  type t = int64
-
-  let to_int64 t = t
-  let offset = Int64.add
-  end
-
-module IntTbl = Hashtbl.MakeSeeded (struct
-  type t = int
-
-  let hash _seed (id : t) =
-    let h = id * 189696287 in
-    h lxor (h lsr 23)
-
-  (* Required for OCaml >= 5.0.0, but causes errors for older compilers
-     because it is an unused value declaration. *)
-  let [@warning "-32"] seeded_hash = hash
-
-  let equal (a : t) (b : t) = a = b
-  end)
+module Info = Trace_s.Info
+module Allocation_source = Trace_s.Allocation_source
+module Obj_id = Trace_s.Obj_id
+module Event = Trace_s.Event
 
 module Int_pair = struct
   type t = int * int
@@ -63,16 +22,6 @@ module Int_pair = struct
 end
 
 module IntPairTbl = Hashtbl.Make(Int_pair)
-
-module Obj_id = struct
-  type t = int
-  module Tbl = IntTbl
-end
-
-module Location_code = struct
-  type t = int
-  module Tbl = IntTbl
-end
 
 module RawBacktraceEntryTable = Hashtbl.Make(struct
   type t = Printexc.raw_backtrace_entry
@@ -137,7 +86,7 @@ type writer = {
   mutable encoder : Write.t;
 }
 
-module Writer = struct
+module Writer : Trace_s.Writer = struct
   type t = writer
   exception Pid_changed
 
@@ -181,7 +130,7 @@ module Writer = struct
   (* encode the "number of samples" and "count" sample type *)
   let encode_sample_type1 () e =
     Write.write_varint 1L e;
-    Write.key 1 Write.Varint e; 
+    Write.key 1 Write.Varint e;
     Write.write_varint 2L e;
     Write.key 2 Write.Varint e
 
@@ -280,8 +229,8 @@ module Writer = struct
       end;
     done;
     t.new_funcs_len <- 0
-    
-  let encode_mapping () e = 
+
+  let encode_mapping () e =
     Write.write_varint 1L e;
     Write.key 1 Write.Varint e;
     Write.write_varint 11L e;
@@ -346,7 +295,7 @@ module Writer = struct
         Hashtbl.add t.strings s id;
         t.strs_len <- Int64.add t.strs_len 1L;
         let alen = Array.length t.new_strs in
-        if t.new_strs_len >= alen then begin 
+        if t.new_strs_len >= alen then begin
           let new_len = if alen = 0 then 32 else alen * 2 in
           let strs = Array.make new_len s in
           Array.blit t.new_strs 0 strs 0 alen;
@@ -360,7 +309,7 @@ module Writer = struct
 
   let add_location t newloc =
     let alen = Array.length t.new_locs in
-    if t.new_locs_len >= alen then begin 
+    if t.new_locs_len >= alen then begin
       let new_len = if alen = 0 then 32 else alen * 2 in
       let locs = Array.make new_len newloc in
       Array.blit t.new_locs 0 locs 0 alen;
@@ -371,7 +320,7 @@ module Writer = struct
       t.new_locs_len <- t.new_locs_len + 1
     end
 
-  let register_function t fn_idx file_idx = 
+  let register_function t fn_idx file_idx =
     let fn_id = t.next_function_id in
     t.next_function_id <- Int64.add fn_id 1L;
     IntPairTbl.add t.function_ids (Int64.to_int fn_idx, Int64.to_int file_idx) fn_id;
@@ -381,7 +330,7 @@ module Writer = struct
       filename = file_idx
     } in
     let alen = Array.length t.functions in
-    if t.new_funcs_len >= alen then begin 
+    if t.new_funcs_len >= alen then begin
       let new_len = if alen = 0 then 16 else alen * 2 in
       let funcs = Array.make new_len new_func in
       Array.blit t.functions 0 funcs 0 alen;
@@ -425,7 +374,7 @@ module Writer = struct
       RawBacktraceEntryTable.add t.loc_table bt ();
       let entry_as_int = Int64.of_int (bt :> int) in
       (* add the location to the location array *)
-      let newloc = { id = entry_as_int; mapping_id = 1L; line=lines; is_folded = !is_folded; } in 
+      let newloc = { id = entry_as_int; mapping_id = 1L; line=lines; is_folded = !is_folded; } in
       add_location t newloc;
       entry_as_int
     end
@@ -472,6 +421,10 @@ module Writer = struct
     encode_functions t;
     id
 
+  let put_alloc _t _now ~length:_ ~nsamples:_ ~source:_
+    ~callstack:_ ~decode_callstack_entry:_ = -1
+
+  let put_event _ ~decode_callstack_entry:_ _ _ = ()
   let put_collect _ _ _ = ()
   let put_promote _ _ _ = ()
 
@@ -487,3 +440,6 @@ module Writer = struct
     Unix.close t.dest
   end
 
+(* module Reader = struct *)
+
+(* end *)
