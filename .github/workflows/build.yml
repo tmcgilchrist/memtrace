@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [ pprof ]
+    branches: [ master ]
   pull_request:
-    branches: [ pprof ]
+    branches: [ master ]
   schedule:
     # Prime the caches every Monday
     - cron: 0 1 * * MON
@@ -18,7 +18,8 @@ jobs:
           - ubuntu-latest
           - macos-latest
         ocaml-compiler:
-          - "5.3.0"
+          - "5.3"
+          - "4.14"
 
     runs-on: ${{ matrix.os }}
     steps:
