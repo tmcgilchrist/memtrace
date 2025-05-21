@@ -2,7 +2,7 @@ open Profile
 open Trace
 
 (* using dummy info for now, as we dont have mapping
- information. Addresses are non-zero so pprof does 
+ information. Addresses are non-zero so pprof does
  not throw errors*)
 let start_addr = 0x7F00000000L
 let end_addr = 0x7F40000000L
@@ -30,13 +30,16 @@ let get_or_add_fnid f fun_table =
       fun_table := !fun_table @ [f];
       (Int64.of_int (List.length !fun_table - 1), false)
 
-(* without this mapping, pprof cannot 
+let malformed_traces = ref 0
+exception Malformed_trace of string
+
+(* without this mapping, pprof cannot
 find the main binary/executable name. But we don't have actual mapping info so we use a dummy *)
 let create_dummy_mapping reader string_table = {
   id = 1L;
   memory_start = start_addr;
   memory_limit = end_addr;
-  file_offset = 0L; 
+  file_offset = 0L;
   filename = get_or_add_string ((Reader.info reader).executable_name) string_table;
   build_id = 0L;
   has_functions = false;
@@ -50,6 +53,11 @@ let micro_to_nanoseconds s = Int64.mul s 1000L
 
 (* takes CTF location codes and creates pprof locations *)
 let update_locs reader buf len functions locations string_table =
+  if len > Array.length buf then begin
+    malformed_traces := !malformed_traces + 1;
+    raise (Malformed_trace "Backtrace buffer length exceeds buffer size")
+    end
+  else
   let truncated_buf = Array.sub buf 0 len in
   let backtrace_buffer = Array.to_list truncated_buf in
 
@@ -87,7 +95,7 @@ let update_locs reader buf len functions locations string_table =
         lines := !lines @ [line_info];
       ) ctf_locs;
 
-      (* Create and add location 
+      (* Create and add location
          NOTE: Some (CTF) location codes map to an empty list, memtrace ignores them so I do too *)
       let loc = {
         id = Int64.of_int (loc_code :> int);
@@ -105,37 +113,55 @@ let update_locs reader buf len functions locations string_table =
 
 let convert_events filename =
   let samples = ref [] in
-  let string_table = ref [""; "source"; "minor"; "major"; "external"] in
+  let string_table = ref [
+    ""; "space"; "bytes"; "alloc_objects"; "count"; "alloc_space"; "inuse_objects";
+    "inuse_space"; "minor"; "major"; "external"; "words"] in
   let locations = ref [] in
-  let functions = ref [] in 
+  let functions = ref [] in
   let sample_types = [
-  { type_ = get_or_add_string "num_samples" string_table; unit_ = get_or_add_string "count" string_table };
-  { type_ = get_or_add_string "alloc_size" string_table; unit_ = get_or_add_string "bytes" string_table } (* confirm unit !! *)
+    { type_ = get_or_add_string "alloc_objects" string_table
+    ; unit_ = get_or_add_string "count" string_table };
+    { type_ = get_or_add_string "alloc_space" string_table
+    ; unit_ = get_or_add_string "bytes" string_table };
+    { type_ = get_or_add_string "inuse_objects" string_table
+    ; unit_ = get_or_add_string "count" string_table };
+    { type_ = get_or_add_string "inuse_space" string_table
+    ; unit_ = get_or_add_string "bytes" string_table }
   ] in
-  let period_type = { type_ = get_or_add_string "space" string_table; unit_ = get_or_add_string "words" string_table } in
+  let period_type = { type_ = get_or_add_string "space" string_table
+                    ; unit_ = get_or_add_string "words" string_table } in
   let reader = Reader.open_ ~filename in
   let info = Reader.info reader in
+  let word_size = info.word_size / 8 in (* 64 bit / 8 => 8 bytes *)
   let start_time = micro_to_nanoseconds (Timestamp.to_int64 info.start_time) in
   let time_end = ref 0L in
   Reader.iter reader (fun time_delta ev ->
     match ev with
     | Alloc { length; nsamples; source; backtrace_buffer; backtrace_length; _ } ->
-      let loc_ids = update_locs reader backtrace_buffer backtrace_length functions locations string_table in
-      let vals = [Int64.of_int nsamples; Int64.of_int length] in
-      let str_val = match source with
-        | Minor -> 2L
-        | Major -> 3L
-        | External -> 4L
-      in
-      let label = {
-        key = 1L;
-        str = str_val;
-        num = 0L;
-        num_unit = 0L
-      } in
-      let new_sample = { location_id = loc_ids; value = vals; label = [label] } in
-      time_end := Timedelta.to_int64 time_delta;
-      samples := !samples @ [new_sample]
+      (try
+        let loc_ids = update_locs reader backtrace_buffer backtrace_length functions locations string_table in
+        let size_in_bytes = length * word_size in
+        let value = [Int64.of_int nsamples; Int64.of_int size_in_bytes; 0L; 0L] in
+        let str_val = match source with
+          | Minor -> 2L
+          | Major -> 3L
+          | External -> 4L
+        in
+        let label = {
+          key = 1L;
+          str = str_val;
+          num = 0L;
+          num_unit = 0L
+        } in
+        let new_sample : sample = { location_id = loc_ids
+          ; value ; label = [label] } in
+        time_end := Timedelta.to_int64 time_delta;
+        samples := !samples @ [new_sample]
+      with
+      | Malformed_trace _ ->
+        time_end := Timedelta.to_int64 time_delta;
+        ()
+      | _ -> ())
     | Promote _ ->
       time_end := Timedelta.to_int64 time_delta;
       ()
@@ -151,19 +177,19 @@ let convert_events filename =
   {
     sample_type = sample_types;
     sample = !samples;
-    mapping = [dummy_mapping]; 
+    mapping = [dummy_mapping];
     location = !locations;
     function_ = !functions;
     string_table = !string_table;
     (* Use these fields to specify function names we want to ignore from or keep in stack traces. Currently not used but could be useful in ignoring internal functions or functions related to the trace writer itself. *)
-    drop_frames = 0L; 
-    keep_frames = 0L; 
-    time_nanos = start_time; 
-    duration_nanos = duration; 
+    drop_frames = 0L;
+    keep_frames = 0L;
+    time_nanos = start_time;
+    duration_nanos = duration;
     period_type = Some period_type;
     period = Int64.of_float (1.0 /. info.sample_rate);
-    comment = []; 
-    default_sample_type = 0L; 
+    comment = [];
+    default_sample_type = 0L;
     doc_url = 0L;
   }
 
@@ -181,6 +207,6 @@ let convert_file fd output_file =
 (* Summary:
     - Without the dummy mapping, pprof cannot find the main binary name and produces an incomplete graph
     - pprof also checks for non-zero addresses so we use random addresses using "get_next_addr ()"
-    - Fields "keep_frames" and "drop_frames" are unused for now but may be useful later 
+    - Fields "keep_frames" and "drop_frames" are unused for now but may be useful later
     - Some CTF location codes map to empty lists, I am not sure why so I ignore them
     - I am not sure if "is_lined" field returned by Gc.memprof is the same as the "is_lined" field in a pprof location *)

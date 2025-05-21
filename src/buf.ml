@@ -19,13 +19,13 @@ module Shared = struct
 
   let remaining b =
     b.pos_end - b.pos
-  
+
   let[@inline] get_pos b = b.pos
 
   external bswap_16 : int -> int = "%bswap16"
   external bswap_32 : int32 -> int32 = "%bswap_int32"
   external bswap_64 : int64 -> int64 = "%bswap_int64"
-  
+
 end
 
 module Write = struct
@@ -38,7 +38,6 @@ module Write = struct
   | Bytes
 
   let rec write_fully fd buf pos pos_end =
-    (*Printf.printf "write_fully pos %d pos_end %d\n" pos pos_end;*)
     if pos = pos_end then () else
       let written = Unix.write fd buf pos (pos_end - pos) in
       write_fully fd buf (pos + written) pos_end
@@ -186,15 +185,15 @@ module Write = struct
     update_64 b pos (Int64.bits_of_float f)
 
   (* the following functions are copied from PBRT: *)
-  let[@inline] reserve_n b n = 
+  let[@inline] reserve_n b n =
     if b.pos < n then raise (Overflow b.pos);
     b.pos <- b.pos - n;
     b.pos
 
-  let[@inline] write_varint (i : int64) b = 
-    let n_bytes = varint_size i in 
-    let start = reserve_n b n_bytes in 
-    varint_slice b.buf start i 
+  let[@inline] write_varint (i : int64) b =
+    let n_bytes = varint_size i in
+    let start = reserve_n b n_bytes in
+    varint_slice b.buf start i
 
   let int_as_varint i b = write_varint (Int64.of_int i) b
 
@@ -232,7 +231,6 @@ module Write = struct
            1
          else
            0))
-  
 end
 
 module Read = struct

@@ -33,5 +33,6 @@ let test_fork ~quick_exit () =
   assert (not (Hashtbl.mem sizes alloc_child));
   ()
 
+(* TODO Implement trace_format:Proto version of this *)
 let () = test_fork ~quick_exit:false ()
 let () = test_fork ~quick_exit:true ()

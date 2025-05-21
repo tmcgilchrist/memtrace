@@ -10,7 +10,7 @@ module Write : sig
     pos_end : int;
   }
 
-  type payload_kind = | Varint |  Bits32 | Bits64 | Bytes 
+  type payload_kind = | Varint |  Bits32 | Bits64 | Bytes
 
   val of_bytes : Bytes.t -> t
   val of_bytes_sub : Bytes.t -> pos:int -> pos_end:int -> t
@@ -60,11 +60,11 @@ module Write : sig
   val update_float : t -> position_float -> float -> unit
 
   val write_varint : int64 -> t -> unit
-  val int_as_varint : int -> t -> unit 
+  val int_as_varint : int -> t -> unit
   val write_string : string -> t -> unit
   val bool : bool -> t -> unit
 
-  val key : int -> payload_kind -> t -> unit 
+  val key : int -> payload_kind -> t -> unit
   val get_pos : t -> int
 
 end
