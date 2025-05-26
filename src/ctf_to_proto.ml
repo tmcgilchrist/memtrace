@@ -98,17 +98,26 @@ let update_locs reader buf len functions locations string_table =
 
 let convert_events filename =
   let samples = ref [] in
-  let string_table = ref [""; "source"; "minor"; "major"; "external"] in
+  let string_table = ref [
+    ""; "space"; "bytes"; "alloc_objects"; "count"; "alloc_space"; "inuse_objects";
+    "inuse_space"; "minor"; "major"; "external"; "words"] in
   let locations = ref [] in
   let functions = ref [] in
   let sample_types = [
-  { type_ = get_or_add_string "num_samples" string_table; unit_ = get_or_add_string "count" string_table };
-  { type_ = get_or_add_string "alloc_size" string_table; unit_ = get_or_add_string "bytes" string_table } (* confirm unit !! *)
+    { type_ = get_or_add_string "alloc_objects" string_table
+    ; unit_ = get_or_add_string "count" string_table };
+    { type_ = get_or_add_string "alloc_space" string_table
+    ; unit_ = get_or_add_string "bytes" string_table };
+    { type_ = get_or_add_string "inuse_objects" string_table
+    ; unit_ = get_or_add_string "count" string_table };
+    { type_ = get_or_add_string "inuse_space" string_table
+    ; unit_ = get_or_add_string "bytes" string_table }
   ] in
-  let period_type = { type_ = get_or_add_string "space" string_table; unit_ = get_or_add_string "words" string_table } in
+  let period_type = { type_ = get_or_add_string "space" string_table
+                    ; unit_ = get_or_add_string "words" string_table } in
   let reader = Reader.open_ ~filename in
   let info = Reader.info reader in
-  let word_size = info.word_size / 8 in
+  let word_size = info.word_size / 8 in (* 64 bit / 8 => 8 bytes *)
   let start_time = micro_to_nanoseconds (Timestamp.to_int64 info.start_time) in
   let time_end = ref 0L in
   Reader.iter reader (fun time_delta ev ->
@@ -117,7 +126,7 @@ let convert_events filename =
       (try
         let loc_ids = update_locs reader backtrace_buffer backtrace_length functions locations string_table in
         let size_in_bytes = length * word_size in
-        let vals = [Int64.of_int nsamples; Int64.of_int size_in_bytes] in
+        let value = [Int64.of_int nsamples; Int64.of_int size_in_bytes; 0L; 0L] in
         let str_val = match source with
           | Minor -> 2L
           | Major -> 3L
@@ -129,7 +138,8 @@ let convert_events filename =
           num = 0L;
           num_unit = 0L
         } in
-        let new_sample = { location_id = loc_ids; value = vals; label = [label] } in
+        let new_sample : sample = { location_id = loc_ids
+          ; value ; label = [label] } in
         time_end := Timedelta.to_int64 time_delta;
         samples := !samples @ [new_sample]
       with

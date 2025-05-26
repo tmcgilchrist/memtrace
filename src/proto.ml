@@ -159,6 +159,8 @@ module Writer : Trace_s.Writer = struct
     let size =  old_start - new_start in
     Write.int_as_varint size e
 
+  (* Encode SampleTypes *)
+
   (* encode the "alloc_objects" and "count" *)
   let encode_alloc_objects () e =
     Write.write_varint 3L e;    (* Index into string_table *)
@@ -326,18 +328,18 @@ module Writer : Trace_s.Writer = struct
     Write.key 3 Write.Bytes writer.encoder; (* Field 3 of Profile = Mapping *)
 
     encode_nested (encode_inuse_space) () writer.encoder;
-    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 4L*)
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 4L *)
 
     encode_nested (encode_inuse_objects) () writer.encoder;
-    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 3L*)
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 3L *)
 
     encode_nested (encode_alloc_space_bytes) () writer.encoder;
-    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 2L*)
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 2L *)
 
     encode_nested (encode_alloc_objects) () writer.encoder;
-    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 1L*)
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 1L *)
 
-    (* time_nanos: *)
+    (* Field 9 of Profile = time_nanos 9L *)
     Write.write_varint info.start_time writer.encoder;
     Write.key 9 Write.Varint writer.encoder;
 
@@ -465,7 +467,7 @@ module Writer : Trace_s.Writer = struct
     ) (Printexc.raw_backtrace_entries callstack) t.encoder;
     Write.key 1 Write.Bytes t.encoder; (* Field 1 of  Sample: Location IDs *)
     (* Convert words to bytes assuming 64bit *)
-    let size = length / 8 in
+    let size = length * 8 in
     (* Field 2 of Sample: Values *)
     encode_nested (fun (a, b) e ->
       Write.int_as_varint 0 e;
