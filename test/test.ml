@@ -136,10 +136,10 @@ let test () = with_temp @@ fun fd ->
   Reader.close r
 
 let test_failure () = with_temp @@ fun fd ->
-  let w = Writer.create fd info in
+  (* let w = Writer.create fd info in *)
   let r = ref [] in
   let report_exn e = r := e :: !r in
-  let t = Memtrace.Memprof_tracer.start ~report_exn ~sampling_rate:0.2 w in
+  let t = Memtrace.CTF_tracer.start ~report_exn ~sampling_rate:0.2 fd in
   for _i = 1 to 50000 do
     let _ : int ref = Sys.opaque_identity (ref 42) in
     ()
@@ -154,7 +154,7 @@ let test_failure () = with_temp @@ fun fd ->
     let _ : int ref = Sys.opaque_identity (ref 42) in
     ()
   done;
-  Memtrace.Memprof_tracer.stop t;
+  Memtrace.CTF_tracer.stop t;
   match !r with
   | [Unix.Unix_error(Unix.EPIPE, "write", _)] -> ()
   | [] -> failwith "should have failed"

@@ -1,4 +1,4 @@
-(** Encoder and decoder for Memtrace traces in CTF format. *)
+(** Encoder and decoder for Memtrace traces in protobuf format. *)
 
 (** Timestamps *)
 module Timestamp = Trace_s.Timestamp
@@ -27,5 +27,6 @@ module Info = Trace_s.Info
 (** Writing traces *)
 module Writer : Trace_s.Writer
 
+(* TODO This should be implementable via protobuf decoder. *)
 (** Reading traces *)
-module Reader : Trace_s.Reader
+(* module Reader : Trace_s.Reader *)
