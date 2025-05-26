@@ -28,31 +28,6 @@ let check_fmt s b = if not b then bad_format s
 module Timestamp = Trace_s.Timestamp
 module Timedelta = Trace_s.Timedelta
 
-(* (\* Time since the epoch *\) *)
-(* module Timestamp = struct *)
-(*   type t = int64 *)
-
-(*   let of_int64 t = t *)
-(*   let to_int64 t = t *)
-
-(*   let to_float t = *)
-(*     (Int64.to_float t) /. 1_000_000. *)
-
-(*   let of_float f = *)
-(*     f *. 1_000_000. |> Int64.of_float *)
-
-(*   let now () = of_float (Unix.gettimeofday ()) *)
-(* end *)
-
-(* (\* Time since the start of the trace *\) *)
-(* module Timedelta = struct *)
-(*   type t = int64 *)
-
-(*   let to_int64 t = t *)
-(*   let offset = Int64.add *)
-(* end *)
-(* open Trace_s *)
-
 (** CTF packet headers *)
 
 (* Small enough that Unix.write still does single writes.
@@ -538,7 +513,6 @@ let get_alloc ~parse_backtraces evcode cache alloc_id b =
 (* The other events are much simpler *)
 
 let put_promote s now id =
-  (*Printf.printf "in put promote";*)
   let open Write in
   if id >= s.next_alloc_id then
     raise (Invalid_argument "Invalid ID in promotion");
@@ -554,7 +528,6 @@ let get_promote alloc_id b =
   Event.Promote id
 
 let put_collect s now id =
-  (*Printf.printf "in put collect";*)
   let open Write in
   if id >= s.next_alloc_id then
     raise (Invalid_argument "Invalid ID in collection");
@@ -568,8 +541,6 @@ let get_collect alloc_id b =
   check_fmt "collect id sync" (id_delta >= 0);
   let id = alloc_id - 1 - id_delta in
   Event.Collect id
-
-
 
 (** Trace reader *)
 
@@ -625,7 +596,6 @@ let iter s ?(parse_backtraces=true) f =
          bad_format "Multiple trace-info events present"
       | Ev_location ->
         let (id, loc) = Location_codec.Reader.get_location loc_reader b in
-        (*Printf.printf "%3d _ _ location\n" (b.pos - last_pos);*)
         begin
           if Location_code.Tbl.mem s.loc_table id then
             check_fmt "consistent location info"
@@ -636,15 +606,12 @@ let iter s ?(parse_backtraces=true) f =
       | (Ev_alloc | Ev_short_alloc _) as evcode ->
         let info = get_alloc ~parse_backtraces evcode cache !alloc_id b in
         incr alloc_id;
-        (*Printf.printf "%3d " (b.pos - last_pos);*)
         f dt info
       | Ev_collect ->
         let info = get_collect !alloc_id b in
-        (*Printf.printf "%3d " (b.pos - last_pos);*)
         f dt info
       | Ev_promote ->
         let info = get_promote !alloc_id b in
-        (*Printf.printf "%3d " (b.pos - last_pos);*)
         f dt info
       end
     done;
@@ -734,7 +701,6 @@ module Writer : Trace_s.Writer = struct
           ~callstack:btrev
           ~decode_callstack_entry in
       if id <> obj_id then
-        (*Printf.printf "after put alloc";*)
         raise (Invalid_argument (Printf.sprintf "Incorrect allocation ID expected: %d, got %d" (id :> int) (obj_id :> int)))
     | Promote id ->
       put_promote w now id

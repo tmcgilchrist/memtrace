@@ -29,24 +29,9 @@ module RawBacktraceEntryTable = Hashtbl.Make(struct
   let hash (x: t) = Hashtbl.hash x
 end)
 
-type line = {
-  function_id : int64;
-  line : int64;
-  column : int64;
-}
-
-type location = {
-  id : int64;
-  mapping_id : int64;
-  line : line Stack.t;
-  is_folded : bool;
-}
-
-type function_ = {
-  id : int64;
-  name : int64;
-  filename : int64;
-}
+type line = Profile.line
+type location = Profile.location
+type function_ = Profile.function_
 
 let buffer_size = 1 lsl 15
 
@@ -90,36 +75,6 @@ module Writer : Trace_s.Writer = struct
   type t = writer
   exception Pid_changed
 
-  (* these strings are only accessed once *)
-  (* let write_strtbl t name = *)
-  (*   let b = Write.of_bytes_proto t.new_strs_buf in *)
-  (*   Write.write_string name b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "words" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "space" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "external" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "major" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "minor" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "source" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "bytes" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "alloc_size" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "count" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "num_samples" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_string "" b; *)
-  (*   Write.key 6 Bytes b; *)
-  (*   Write.write_fd_proto t.dest b; *)
-  (*   t.encoder <- Write.of_bytes_proto t.encoder.buf *)
-
   let write_strtbl t name =
     let b = Write.of_bytes_proto t.new_strs_buf in
     Write.write_string name b;
@@ -159,106 +114,83 @@ module Writer : Trace_s.Writer = struct
     let size =  old_start - new_start in
     Write.int_as_varint size e
 
-  (* Encode SampleTypes *)
+  (* Encode ValueTypes using indexes into string table for key names. *)
 
   (* encode the "alloc_objects" and "count" *)
   let encode_alloc_objects () e =
-    Write.write_varint 3L e;    (* Index into string_table *)
+    Write.write_varint 3L e;
     Write.key 1 Write.Varint e;
-    Write.write_varint 4L e;    (* Index into string_table *)
+    Write.write_varint 4L e;
     Write.key 2 Write.Varint e
 
   (* encode the "alloc_space" and "bytes" *)
   let encode_alloc_space_bytes () e =
-    Write.write_varint 5L e;    (* Index into string_table *)
+    Write.write_varint 5L e;
     Write.key 1 Write.Varint e;
-    Write.write_varint 2L e;    (* Index into string_table *)
+    Write.write_varint 2L e;
     Write.key 2 Write.Varint e
 
+  (* encode the "inuse_objects" and "count" *)
   let encode_inuse_objects () e =
     Write.write_varint 6L e;
     Write.key 1 Write.Varint e;
     Write.write_varint 4L e;
     Write.key 2 Write.Varint e
 
+  (* encode the "inuse_space" and "bytes" *)
   let encode_inuse_space () e =
     Write.write_varint 7L e;
     Write.key 1 Write.Varint e;
     Write.write_varint 2L e;
     Write.key 2 Write.Varint e
 
+  (* Encode Line message *)
   let encode_line (line : line) encoder =
     Write.write_varint line.function_id encoder;
-    Write.key 1 Write.Varint encoder;
+    Write.key 1 Write.Varint encoder;       (* Field 1 of Line function_id *)
     Write.write_varint line.line encoder;
-    Write.key 2 Write.Varint encoder;
+    Write.key 2 Write.Varint encoder;       (* Field 2 of Line line *)
     Write.write_varint line.column encoder;
-    Write.key 3 Write.Varint encoder
+    Write.key 3 Write.Varint encoder        (* Field 3 of Line column *)
 
-  let encode_loc (loc : location) encoder =
+  (* Encode Location message
+
+     Produces a Symbolised location with all fields except the instruction address.
+  *)
+  let encode_location (loc : location) encoder =
     let old_start = Write.get_pos encoder in
     Write.write_varint loc.id encoder;
-    Write.key 1 Write.Varint encoder;
+    Write.key 1 Write.Varint encoder;          (* Field 1 of Location id *)
     Write.write_varint loc.mapping_id encoder;
-    Write.key 2 Write.Varint encoder;
-    while not (Stack.is_empty loc.line) do
+    Write.key 2 Write.Varint encoder;          (* Field 2 of Location mapping_id *)
+    while not (List.is_empty loc.line) do
       (* every line is a nested field *)
       let start_bfr_line = Write.get_pos encoder in
-      let line = Stack.pop loc.line in
+      let line = List.hd loc.line in
       encode_line line encoder;
       let start_afr_line = Write.get_pos encoder in
       let size = start_bfr_line - start_afr_line in
       Write.int_as_varint size encoder;
-      Write.key 4 Write.Bytes encoder;
+      Write.key 4 Write.Bytes encoder;         (* Field 4 of Location Line *)
     done;
     Write.bool loc.is_folded encoder;
-    Write.key 5 Write.Varint encoder;
+    Write.key 5 Write.Varint encoder;          (* Field 5 of Location is_folded *)
     let new_start = Write.get_pos encoder in
     let size = old_start - new_start in
     Write.int_as_varint size encoder
 
-  let flush t =
-    if t.pid <> t.getpid () then raise Pid_changed;
-    let open Write in
-    (* Flush newly seen strings *)
-    let i = ref t.new_strs_len in
-    while (!i > 0) do
-      let b = Write.of_bytes_proto t.new_strs_buf in
-      (* write until either we run out of buffer space or we finish writing all strings *)
-      while (!i > 0 && Write.get_pos b > max_str_size) do
-        let str = t.new_strs.(!i-1) in
-        write_string str b;
-        key 6 Bytes b;
-        decr i;
-      done;
-      write_fd_proto t.dest b
-    done;
-    t.new_strs_len <- 0;
-    (* Flush new locations *)
-    let i = ref 0 in
-    while !i < t.new_locs_len do
-      let b_loc = of_bytes_proto t.new_locs_buf in
-      while ((!i < t.new_locs_len) && (get_pos b_loc > max_loc_size)) do
-        encode_loc (t.new_locs.(!i)) b_loc;
-        key 4 Bytes b_loc;
-        incr i;
-      done;
-      write_fd_proto t.dest b_loc;
-    done;
-    (* Flush actual events *)
-    write_fd_proto t.dest t.encoder;
-    (* reset location and main buffers *)
-    t.new_locs_len <- 0;
-    t.encoder <- Write.of_bytes_proto t.encoder.buf
-
+  (* Encode Function message *)
   let encode_function (f : function_) encoder =
-    Write.write_varint f.id encoder;
-    Write.key 1 Write.Varint encoder;
-    Write.write_varint f.name encoder;
-    Write.key 2 Write.Varint encoder;
-    Write.write_varint f.filename encoder;
-    Write.key 4 Write.Varint encoder
+    let open Write in
+    write_varint f.id encoder;
+    key 1 Varint encoder;
+    write_varint f.name encoder;
+    key 2 Varint encoder;
+    write_varint f.filename encoder;
+    key 4 Varint encoder;
+    key 5 Bytes encoder
 
+  (*  Encode Functions collected since last write. *)
   let encode_functions t =
     let open Write in
     let i = ref 0 in
@@ -266,23 +198,26 @@ module Writer : Trace_s.Writer = struct
       while ((!i < t.new_funcs_len) && (get_pos t.encoder > max_func_size)) do
         let f = t.functions.(!i) in
         encode_nested encode_function f t.encoder;
-        key 5 Bytes t.encoder;  (* Field 5 of Profile = functions *)
         incr i;
       done;
       if get_pos t.encoder > max_func_size then begin
         write_fd_proto t.dest t.encoder;
-        t.encoder <- Write.of_bytes_proto t.encoder.buf
+        t.encoder <- of_bytes_proto t.encoder.buf
       end;
     done;
     t.new_funcs_len <- 0
 
-  (* message Mapping *)
+  (* Encode Mapping message.
+
+     For OCaml we produce Symbolised Profiles as we know the file name and
+     OCaml identifier based on Gc.Memprof callbacks.
+   *)
   let encode_mapping () e =
-    (* TODO Need to lookup TEXT section address mapping for this. *)
     Write.write_varint 1L e;
-    Write.key 1 Write.Varint e;
+    Write.key 1 Write.Varint e; (* Field 1 of Mapping = Id *)
     Write.write_varint 12L e;   (* Index into String Table for source file name *)
-    Write.key 5 Write.Varint e
+    Write.key 5 Write.Varint e  (* Field 5 of Mapping = Filename *)
+    (* TODO What about has_* flags? Do we need them filled in for Symbolic profile *)
 
   let encode_period_and_type t rate =
     encode_nested (fun (x, y) e ->
@@ -323,21 +258,23 @@ module Writer : Trace_s.Writer = struct
       loc_table = RawBacktraceEntryTable.create 100;
       encoder = Write.of_bytes_proto (Bytes.make buffer_size '\042');
     } in
+
+    (* TODO This only maps the main executable, it should handle dynamically linked libraries. *)
     write_strtbl writer info.executable_name;
     encode_nested (encode_mapping) () writer.encoder;
     Write.key 3 Write.Bytes writer.encoder; (* Field 3 of Profile = Mapping *)
 
     encode_nested (encode_inuse_space) () writer.encoder;
-    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 4L *)
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = ValueType 4L *)
 
     encode_nested (encode_inuse_objects) () writer.encoder;
-    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 3L *)
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = ValueType 3L *)
 
     encode_nested (encode_alloc_space_bytes) () writer.encoder;
-    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 2L *)
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = ValueType 2L *)
 
     encode_nested (encode_alloc_objects) () writer.encoder;
-    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 1L *)
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = ValueType 1L *)
 
     (* Field 9 of Profile = time_nanos 9L *)
     Write.write_varint info.start_time writer.encoder;
@@ -384,11 +321,7 @@ module Writer : Trace_s.Writer = struct
     let fn_id = t.next_function_id in
     t.next_function_id <- Int64.add fn_id 1L;
     IntPairTbl.add t.function_ids (Int64.to_int fn_idx, Int64.to_int file_idx) fn_id;
-    let new_func = {
-      id = fn_id;
-      name = fn_idx;
-      filename = file_idx
-    } in
+    let new_func = Profile.default_function_ ~id:fn_id ~name:fn_idx ~filename:file_idx () in
     let alen = Array.length t.functions in
     if t.new_funcs_len >= alen then begin
       let new_len = if alen = 0 then 16 else alen * 2 in
@@ -423,40 +356,84 @@ module Writer : Trace_s.Writer = struct
           let function_name = match Slot.name slot with Some n -> n | _ -> "??" in
           let fn_idx = register_string t function_name in
           let file_idx = register_string t filename in
+
           (* check if we have seen this function *)
           let function_id = match IntPairTbl.find_opt t.function_ids (Int64.to_int fn_idx, Int64.to_int file_idx) with
             | Some fn_id -> fn_id
             | None -> register_function t fn_idx file_idx
           in
-          let new_line = { function_id; line = Int64.of_int line_number; column = Int64.of_int start_char; } in
+          let new_line = Profile.default_line ~function_id
+            ~line:(Int64.of_int line_number) ~column:(Int64.of_int start_char) () in
           Stack.push new_line lines
       ) slots;
       RawBacktraceEntryTable.add t.loc_table bt ();
       let entry_as_int = Int64.of_int (bt :> int) in
+
       (* add the location to the location array *)
-      let newloc = { id = entry_as_int; mapping_id = 1L; line=lines; is_folded = !is_folded; } in
+      let newloc = Profile.default_location ~id:entry_as_int
+        ~mapping_id:1L ~line:(lines |> Stack.to_seq |> List.of_seq) ~is_folded:!is_folded () in
       add_location t newloc;
       entry_as_int
     end
     else
       Int64.of_int (bt :> int)
 
+  (*  Encode label for allocation source. *)
   let encode_label src encoder =
     Write.write_varint 5L encoder;
-    Write.key 1 Write.Varint encoder;
+    Write.key 1 Write.Varint encoder; (* Field 1 of Label: Key *)
     let src = match src with
-      | Allocation_source.Minor -> 6L
-      | Allocation_source.Major -> 7L
-      | Allocation_source.External -> 8L
+      | Allocation_source.Minor -> 8L (* Indexes into string table *)
+      | Allocation_source.Major -> 9L
+      | Allocation_source.External -> 10L
     in
     Write.write_varint src encoder;
-    Write.key 2 Write.Varint encoder
+    Write.key 2 Write.Varint encoder (* Field 2 of Label: Str *)
 
-  let put_alloc_with_raw_backtrace t _ ~length ~nsamples ~source ~callstack =
+  let flush t =
+    if t.pid <> t.getpid () then raise Pid_changed;
+    let open Write in
+
+    (* Flush newly seen strings *)
+    let i = ref t.new_strs_len in
+    while (!i > 0) do
+      let b = Write.of_bytes_proto t.new_strs_buf in
+      (* write until either we run out of buffer space or we finish writing all strings *)
+      while (!i > 0 && Write.get_pos b > max_str_size) do
+        let str = t.new_strs.(!i-1) in
+        write_string str b;
+        key 6 Bytes b;
+        decr i;
+      done;
+      write_fd_proto t.dest b
+    done;
+    t.new_strs_len <- 0;
+
+    (* Flush new locations *)
+    let i = ref 0 in
+    while !i < t.new_locs_len do
+      let b_loc = of_bytes_proto t.new_locs_buf in
+      while ((!i < t.new_locs_len) && (get_pos b_loc > max_loc_size)) do
+        encode_location (t.new_locs.(!i)) b_loc;
+        key 4 Bytes b_loc;
+        incr i;
+      done;
+      write_fd_proto t.dest b_loc;
+    done;
+
+    (* Flush actual events *)
+    write_fd_proto t.dest t.encoder;
+
+    (* reset location and main buffers *)
+    t.new_locs_len <- 0;
+    t.encoder <- Write.of_bytes_proto t.encoder.buf
+
+  let put_alloc_with_raw_backtrace t _now ~length ~nsamples ~source ~callstack =
     if Write.get_pos t.encoder < max_ev then flush t;
     let id = t.next_alloc_id in
     t.next_alloc_id <- id + 1;
-    (* writing the nested sample field *)
+
+    (* Writing the nested sample field *)
     let old_start = Write.get_pos t.encoder in
     encode_nested (fun lst e ->
       for i = (Array.length lst)-1 downto 0 do
@@ -465,26 +442,25 @@ module Writer : Trace_s.Writer = struct
         Write.write_varint entry e
       done
     ) (Printexc.raw_backtrace_entries callstack) t.encoder;
-    Write.key 1 Write.Bytes t.encoder; (* Field 1 of  Sample: Location IDs *)
+    Write.key 1 Write.Bytes t.encoder;     (* Field 1 of  Sample: Location IDs *)
+
     (* Convert words to bytes assuming 64bit *)
     let size = length * 8 in
-    (* Field 2 of Sample: Values *)
     encode_nested (fun (a, b) e ->
       Write.int_as_varint 0 e;
       Write.int_as_varint 0 e;
       Write.int_as_varint b e;
       Write.int_as_varint a e;
     ) (nsamples, size) t.encoder;
-    Write.key 2 Write.Bytes t.encoder;
+    Write.key 2 Write.Bytes t.encoder;     (* Field 2 of Sample: Values *)
 
-    (* Field 3 of Sample: Labels *)
     encode_nested encode_label source t.encoder;
-    Write.key 3 Write.Bytes t.encoder;
+    Write.key 3 Write.Bytes t.encoder;     (* Field 3 of Sample: Labels *)
+
     let new_start = Write.get_pos t.encoder in
     let size = old_start - new_start in
     Write.int_as_varint size t.encoder;
-    (* Field 2 of Profile = Sample *)
-    Write.key 2 Write.Bytes t.encoder;
+    Write.key 2 Write.Bytes t.encoder;     (* Field 2 of Profile: Sample *)
 
     (* now write all the functions we saw in this sample *)
     encode_functions t;
@@ -493,26 +469,20 @@ module Writer : Trace_s.Writer = struct
   let put_alloc _t _now ~length:_ ~nsamples:_ ~source:_
     ~callstack:_ ~decode_callstack_entry:_ = -1
 
-  let put_event _ ~decode_callstack_entry:_ _ _ = ()
-  let put_collect _ _ _ = ()
-  let put_promote _ _ _ = ()
+  let put_event _t ~decode_callstack_entry:_ _ _ = ()
+  let put_collect _t _ _ = ()
+  let put_promote _t _ _ = ()
 
-  (* The period_type record references 9 => "space", 10 => "words" *)
   let write_duration t end_time =
     let duration = Timedelta.offset t.start_time end_time in
     Write.write_varint duration t.encoder;
-    (* let duration = Int64.sub end_time t.start_time in *)
-    (* Write.write_varint (Int64.mul 1000L duration) t.encoder; *)
-    Write.key 10 Write.Varint t.encoder
+    Write.key 10 Write.Varint t.encoder (* Field 10 of Profile: duration_nanos *)
 
   let close t =
     (* Convert Mirco-seconds to Nanoseconds *)
+    (* TODO Validate time conversion and units, shoudld be nanoseconds past the epoch. *)
     let end_time = Int64.mul (Timestamp.now ()) 1000L in
-    write_duration t end_time; 
+    write_duration t end_time;
     flush t;
     Unix.close t.dest
   end
-
-(* module Reader = struct *)
-
-(* end *)
