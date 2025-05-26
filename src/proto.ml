@@ -91,31 +91,63 @@ module Writer : Trace_s.Writer = struct
   exception Pid_changed
 
   (* these strings are only accessed once *)
+  (* let write_strtbl t name = *)
+  (*   let b = Write.of_bytes_proto t.new_strs_buf in *)
+  (*   Write.write_string name b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "words" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "space" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "external" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "major" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "minor" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "source" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "bytes" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "alloc_size" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "count" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "num_samples" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_string "" b; *)
+  (*   Write.key 6 Bytes b; *)
+  (*   Write.write_fd_proto t.dest b; *)
+  (*   t.encoder <- Write.of_bytes_proto t.encoder.buf *)
+
   let write_strtbl t name =
     let b = Write.of_bytes_proto t.new_strs_buf in
     Write.write_string name b;
     Write.key 6 Bytes b;
-    Write.write_string "words" b;
+    Write.write_string "words" b;         (* 11L *)
     Write.key 6 Bytes b;
-    Write.write_string "space" b;
+    Write.write_string "external" b;      (* 10L *)
     Write.key 6 Bytes b;
-    Write.write_string "external" b;
+    Write.write_string "major" b;         (* 9L *)
     Write.key 6 Bytes b;
-    Write.write_string "major" b;
+    Write.write_string "minor" b;         (* 8L *)
     Write.key 6 Bytes b;
-    Write.write_string "minor" b;
+    (* What other strings go here for OCaml GC? *)
+    Write.write_string "inuse_space" b;   (* 7L *)
     Write.key 6 Bytes b;
-    Write.write_string "source" b;
+    Write.write_string "inuse_objects" b; (* 6L *)
     Write.key 6 Bytes b;
-    Write.write_string "bytes" b;
+    Write.write_string "alloc_space" b;   (* 5L *)
     Write.key 6 Bytes b;
-    Write.write_string "alloc_size" b;
+    Write.write_string "count" b;         (* 4L *)
     Write.key 6 Bytes b;
-    Write.write_string "count" b;
+    Write.write_string "alloc_objects" b; (* 3L *)
     Write.key 6 Bytes b;
-    Write.write_string "num_samples" b;
+    Write.write_string "bytes" b;         (* 2L *)
     Write.key 6 Bytes b;
-    Write.write_string "" b;
+    Write.write_string "space" b;         (* 1L *)
+    Write.key 6 Bytes b;
+    Write.write_string "" b;              (* 0L Reserved *)
     Write.key 6 Bytes b;
     Write.write_fd_proto t.dest b;
     t.encoder <- Write.of_bytes_proto t.encoder.buf
@@ -127,18 +159,30 @@ module Writer : Trace_s.Writer = struct
     let size =  old_start - new_start in
     Write.int_as_varint size e
 
-  (* encode the "number of samples" and "count" sample type *)
-  let encode_sample_type1 () e =
-    Write.write_varint 1L e;
+  (* encode the "alloc_objects" and "count" *)
+  let encode_alloc_objects () e =
+    Write.write_varint 3L e;    (* Index into string_table *)
     Write.key 1 Write.Varint e;
-    Write.write_varint 2L e;
+    Write.write_varint 4L e;    (* Index into string_table *)
     Write.key 2 Write.Varint e
 
-  (* encode the "alloc size" and "bytes" sample type *)
-  let encode_sample_type2 () e =
-    Write.write_varint 3L e;
+  (* encode the "alloc_space" and "bytes" *)
+  let encode_alloc_space_bytes () e =
+    Write.write_varint 5L e;    (* Index into string_table *)
+    Write.key 1 Write.Varint e;
+    Write.write_varint 2L e;    (* Index into string_table *)
+    Write.key 2 Write.Varint e
+
+  let encode_inuse_objects () e =
+    Write.write_varint 6L e;
     Write.key 1 Write.Varint e;
     Write.write_varint 4L e;
+    Write.key 2 Write.Varint e
+
+  let encode_inuse_space () e =
+    Write.write_varint 7L e;
+    Write.key 1 Write.Varint e;
+    Write.write_varint 2L e;
     Write.key 2 Write.Varint e
 
   let encode_line (line : line) encoder =
@@ -230,12 +274,13 @@ module Writer : Trace_s.Writer = struct
     done;
     t.new_funcs_len <- 0
 
+  (* message Mapping *)
   let encode_mapping () e =
+    (* TODO Need to lookup TEXT section address mapping for this. *)
     Write.write_varint 1L e;
     Write.key 1 Write.Varint e;
-    Write.write_varint 11L e;
+    Write.write_varint 12L e;   (* Index into String Table for source file name *)
     Write.key 5 Write.Varint e
-
 
   let encode_period_and_type t rate =
     encode_nested (fun (x, y) e ->
@@ -279,10 +324,23 @@ module Writer : Trace_s.Writer = struct
     write_strtbl writer info.executable_name;
     encode_nested (encode_mapping) () writer.encoder;
     Write.key 3 Write.Bytes writer.encoder; (* Field 3 of Profile = Mapping *)
-    encode_nested (encode_sample_type1) () writer.encoder;
-    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type *)
-    encode_nested (encode_sample_type2) () writer.encoder;
-    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type *)
+
+    encode_nested (encode_inuse_space) () writer.encoder;
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 4L*)
+
+    encode_nested (encode_inuse_objects) () writer.encoder;
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 3L*)
+
+    encode_nested (encode_alloc_space_bytes) () writer.encoder;
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 2L*)
+
+    encode_nested (encode_alloc_objects) () writer.encoder;
+    Write.key 1 Write.Bytes writer.encoder; (* Field 1 of Profile = Sample Type 1L*)
+
+    (* time_nanos: *)
+    Write.write_varint info.start_time writer.encoder;
+    Write.key 9 Write.Varint writer.encoder;
+
     encode_period_and_type writer info.sample_rate;
     writer
 
@@ -406,17 +464,26 @@ module Writer : Trace_s.Writer = struct
       done
     ) (Printexc.raw_backtrace_entries callstack) t.encoder;
     Write.key 1 Write.Bytes t.encoder; (* Field 1 of  Sample: Location IDs *)
+    (* Convert words to bytes assuming 64bit *)
+    let size = length / 8 in
+    (* Field 2 of Sample: Values *)
     encode_nested (fun (a, b) e ->
-      Write.int_as_varint a e;
+      Write.int_as_varint 0 e;
+      Write.int_as_varint 0 e;
       Write.int_as_varint b e;
-    ) (nsamples, length) t.encoder;
-    Write.key 2 Write.Bytes t.encoder; (* Field 2 of Sample: Values *)
+      Write.int_as_varint a e;
+    ) (nsamples, size) t.encoder;
+    Write.key 2 Write.Bytes t.encoder;
+
+    (* Field 3 of Sample: Labels *)
     encode_nested encode_label source t.encoder;
-    Write.key 3 Write.Bytes t.encoder; (* Field 3 of Sample: Labels *)
+    Write.key 3 Write.Bytes t.encoder;
     let new_start = Write.get_pos t.encoder in
-    let size =  old_start - new_start in
+    let size = old_start - new_start in
     Write.int_as_varint size t.encoder;
-    Write.key 2 Write.Bytes t.encoder; (* Field 2 of Profile = Sample *)
+    (* Field 2 of Profile = Sample *)
+    Write.key 2 Write.Bytes t.encoder;
+
     (* now write all the functions we saw in this sample *)
     encode_functions t;
     id
@@ -428,14 +495,18 @@ module Writer : Trace_s.Writer = struct
   let put_collect _ _ _ = ()
   let put_promote _ _ _ = ()
 
+  (* The period_type record references 9 => "space", 10 => "words" *)
   let write_duration t end_time =
-    let duration = Int64.sub end_time t.start_time in
-    Write.write_varint (Int64.mul 1000L duration) t.encoder;
+    let duration = Timedelta.offset t.start_time end_time in
+    Write.write_varint duration t.encoder;
+    (* let duration = Int64.sub end_time t.start_time in *)
+    (* Write.write_varint (Int64.mul 1000L duration) t.encoder; *)
     Write.key 10 Write.Varint t.encoder
 
   let close t =
-    let end_time = Int64.of_float (Unix.gettimeofday () *. 1_000_000_000.) in
-    write_duration t end_time;
+    (* Convert Mirco-seconds to Nanoseconds *)
+    let end_time = Int64.mul (Timestamp.now ()) 1000L in
+    write_duration t end_time; 
     flush t;
     Unix.close t.dest
   end

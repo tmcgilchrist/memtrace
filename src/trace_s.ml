@@ -210,7 +210,7 @@ module Make(W : Writer) = struct
          host_name = Unix.gethostname ();
          ocaml_runtime_params = Sys.runtime_parameters ();
          pid = getpid64 ();
-         start_time = Timestamp.of_float (Unix.gettimeofday ());
+         start_time = Timestamp.now ();
          context;
     } in
 
