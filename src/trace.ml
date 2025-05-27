@@ -1,6 +1,6 @@
 (* This is the implementation of the encoder/decoder for the memtrace
    format. This format is quite involved, and to understand it it's
-   best to read the CTF specification and comments in memtrace.tsl
+   best to read the CTF specification and comments in memtrace.tsdl
    first. *)
 
 (* Increment this when the format changes in an incompatible way *)
@@ -24,30 +24,8 @@ let[@inline never] bad_formatf f = Printf.ksprintf (fun s -> bad_format s) f
 let check_fmt s b = if not b then bad_format s
 
 (* Utility types *)
-
-(* Time since the epoch *)
-module Timestamp = struct
-  type t = int64
-
-  let of_int64 t = t
-  let to_int64 t = t
-
-  let to_float t =
-    (Int64.to_float t) /. 1_000_000.
-
-  let of_float f =
-    f *. 1_000_000. |> Int64.of_float
-
-  let now () = of_float (Unix.gettimeofday ())
-end
-
-(* Time since the start of the trace *)
-module Timedelta = struct
-  type t = int64
-
-  let to_int64 t = t
-  let offset = Int64.add
-end
+module Timestamp = Trace_s.Timestamp
+module Timedelta = Trace_s.Timedelta
 
 (** CTF packet headers *)
 
@@ -218,28 +196,19 @@ let[@inline] get_event_header info b =
                                            event_header_time_len))) in
   (ev, time)
 
-
-module Location = Location_codec.Location
-
+module Location = Location
+module Location_code = Trace_s.Location_code
 
 (** Trace info *)
 
-module Info = struct
-  type t = {
-    sample_rate : float;
-    word_size : int;
-    executable_name : string;
-    host_name : string;
-    ocaml_runtime_params : string;
-    pid : Int64.t;
-    start_time : Timestamp.t;
-    context : string option;
-  }
-end
+module Info = Trace_s.Info
+module Allocation_source = Trace_s.Allocation_source
+module Obj_id = Trace_s.Obj_id
+module Event = Trace_s.Event
 
 let put_trace_info b (info : Info.t) =
   let open Write in
-  put_event_header b Ev_trace_info info.start_time;
+  put_event_header b Ev_trace_info (info.start_time);
   put_float b info.sample_rate;
   put_8 b info.word_size;
   put_string b info.executable_name;
@@ -272,8 +241,6 @@ let get_trace_info b ~packet_info =
     ocaml_runtime_params;
     pid;
     context }
-
-
 
 (** Trace writer *)
 
@@ -345,68 +312,6 @@ let make_writer dest ?getpid (info : Info.t) =
       packet_header;
       packet } in
   s
-
-module IntTbl = Hashtbl.MakeSeeded (struct
-  type t = int
-  let seeded_hash _seed (id : t) =
-    let h = id * 189696287 in
-    h lxor (h lsr 23)
-  let hash = seeded_hash
-  let equal (a : t) (b : t) = a = b
-end)
-
-module Obj_id = struct
-  type t = int
-  module Tbl = IntTbl
-end
-
-module Location_code = struct
-  type t = int
-  module Tbl = IntTbl
-end
-
-module Allocation_source = struct
-  type t = Minor | Major | External
-end
-
-module Event = struct
-  type t =
-    | Alloc of {
-        obj_id : Obj_id.t;
-        length : int;
-        nsamples : int;
-        source : Allocation_source.t;
-        backtrace_buffer : Location_code.t array;
-        backtrace_length : int;
-        common_prefix : int;
-      }
-    | Promote of Obj_id.t
-    | Collect of Obj_id.t
-
-  let to_string decode_loc = function
-    | Alloc {obj_id; length; nsamples; source;
-             backtrace_buffer; backtrace_length; common_prefix} ->
-      let backtrace =
-        List.init backtrace_length (fun i ->
-            let s = backtrace_buffer.(i) in
-            match decode_loc s with
-            | [] -> Printf.sprintf "$%d" (s :> int)
-            | ls -> String.concat " " (List.map Location.to_string ls))
-        |> String.concat " " in
-      let alloc_src =
-        match source with
-        | Minor -> "alloc"
-        | Major -> "alloc_major"
-        | External -> "alloc_ext" in
-      Printf.sprintf "%010d %s %d len=%d % 4d: %s"
-        (obj_id :> int) alloc_src
-        nsamples length common_prefix
-        backtrace;
-    | Promote id ->
-      Printf.sprintf "%010d promote" (id :> int)
-    | Collect id ->
-      Printf.sprintf "%010d collect" (id :> int)
-end
 
 let log_new_loc s loc =
   let alen = Array.length s.new_locs in
@@ -617,7 +522,7 @@ let get_promote alloc_id b =
   let open Read in
   let id_delta = get_vint b in
   check_fmt "promote id sync" (id_delta >= 0);
-  let id = alloc_id - 1 - id_delta in
+  let id  = alloc_id - 1 - id_delta in
   Event.Promote id
 
 let put_collect s now id =
@@ -634,8 +539,6 @@ let get_collect alloc_id b =
   check_fmt "collect id sync" (id_delta >= 0);
   let id = alloc_id - 1 - id_delta in
   Event.Collect id
-
-
 
 (** Trace reader *)
 
@@ -674,12 +577,11 @@ let refill_to size fd stream =
   let open Read in
   if remaining stream < size then refill_fd fd stream else stream
 
-
 let iter s ?(parse_backtraces=true) f =
   let open Read in
   let cache = Backtrace_codec.Reader.create () in
   let loc_reader = Location_codec.Reader.create () in
-  let last_timestamp = ref s.info.start_time in
+  let last_timestamp = ref (s.info.start_time) in
   let alloc_id = ref 0 in
   let iter_events_of_packet packet_header b =
     while remaining b > 0 do
@@ -692,7 +594,6 @@ let iter s ?(parse_backtraces=true) f =
          bad_format "Multiple trace-info events present"
       | Ev_location ->
         let (id, loc) = Location_codec.Reader.get_location loc_reader b in
-        (*Printf.printf "%3d _ _ location\n" (b.pos - last_pos);*)
         begin
           if Location_code.Tbl.mem s.loc_table id then
             check_fmt "consistent location info"
@@ -703,15 +604,12 @@ let iter s ?(parse_backtraces=true) f =
       | (Ev_alloc | Ev_short_alloc _) as evcode ->
         let info = get_alloc ~parse_backtraces evcode cache !alloc_id b in
         incr alloc_id;
-        (*Printf.printf "%3d " (b.pos - last_pos);*)
         f dt info
       | Ev_collect ->
         let info = get_collect !alloc_id b in
-        (*Printf.printf "%3d " (b.pos - last_pos);*)
         f dt info
       | Ev_promote ->
         let info = get_promote !alloc_id b in
-        (*Printf.printf "%3d " (b.pos - last_pos);*)
         f dt info
       end
     done;
@@ -743,8 +641,7 @@ let iter s ?(parse_backtraces=true) f =
     iter_packets rest in
   iter_packets (read_fd s.fd (Bytes.make max_packet_size '\000'))
 
-
-module Writer = struct
+module Writer : Trace_s.Writer = struct
   type t = writer
 
   exception Pid_changed = Pid_changed
@@ -754,7 +651,7 @@ module Writer = struct
   (* Unfortunately, efficient access to the backtrace is not possible
      with the current Printexc API, even though internally it's an int
      array. For now, wave the Obj.magic wand. There's a PR to fix this:
-     https://github.com/ocaml/ocaml/pull/9663 *)
+     https://github.com/ocaml/ocaml/pull/9663 *) (* TODO Fix this since 4.12 *)
   let location_code_array_of_raw_backtrace (b : Printexc.raw_backtrace) =
     (Obj.magic b : Location_code.t array)
 
@@ -768,7 +665,7 @@ module Writer = struct
       let slot = convert_raw_backtrace_slot slot in
       match Slot.location slot with
       | None -> tail
-      | Some { filename; line_number; start_char; end_char } ->
+      | Some { filename; line_number; start_char; end_char; _} ->
          let defname = match Slot.name slot with Some n -> n | _ -> "??" in
          { filename; line=line_number; start_char; end_char; defname }::tail in
     get_locations (get_raw_backtrace_slot callstack i) |> List.rev
@@ -802,7 +699,7 @@ module Writer = struct
           ~callstack:btrev
           ~decode_callstack_entry in
       if id <> obj_id then
-        raise (Invalid_argument "Incorrect allocation ID")
+        raise (Invalid_argument (Printf.sprintf "Incorrect allocation ID expected: %d, got %d" (id :> int) (obj_id :> int)))
     | Promote id ->
       put_promote w now id
     | Collect id ->

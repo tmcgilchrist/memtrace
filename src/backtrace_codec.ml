@@ -54,8 +54,6 @@ module Writer = struct
               hash1
             else
               hash2 in
-          (* Printf.printf "miss %05d %016x\n%!"
-               bucket slot; (*" %016x\n%!" bucket slot;*) *)
           cache.cache.(bucket) <- slot;
           cache.cache_date.(bucket) <- alloc_id;
           cache.cache_next.(predictor) <- bucket;
@@ -65,7 +63,6 @@ module Writer = struct
         end
       end
     and code_cache_hit predictor hit pos ncodes =
-      (* Printf.printf "hit %d\n" hit; *)
       cache.cache_date.(hit) <- alloc_id;
       cache.cache_next.(predictor) <- hit;
       code_with_prediction hit hit 0 (pos-1) (ncodes+1)
@@ -79,7 +76,6 @@ module Writer = struct
         let pred_bucket = cache.cache_next.(predictor) in
         if cache.cache.(pred_bucket) = slot then begin
           (* correct prediction *)
-          (* Printf.printf "pred %d %d\n" pred_bucket ncorrect; *)
           if ncorrect = 255 then begin
             (* overflow: code a new prediction block *)
             put_hit b orig_hit ncorrect;
@@ -214,4 +210,3 @@ module Reader = struct
     let _value = get_64 b in
     ()
 end
-

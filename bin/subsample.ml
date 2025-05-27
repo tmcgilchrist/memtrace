@@ -35,13 +35,14 @@ let copy inf outf fact tstart tend =
           Obj_id.Tbl.remove id_remap id;
           Some (Event.Collect id')
         end else None in
+    let start_time = info.start_time in
     match ev with
     | None -> ()
     | Some ev ->
       Writer.put_event w
         ~decode_callstack_entry:(fun loc ->
           Reader.lookup_location_code r loc)
-        (Timedelta.offset info.start_time now) ev);
+        (Timedelta.offset start_time now) ev);
   Reader.close r;
   Writer.flush w;
   Unix.close wfd

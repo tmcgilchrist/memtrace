@@ -1,0 +1,28 @@
+START TIME: 1741181812152103
+0000005506 0000000000 alloc 1 len=2    0:loc_code: $2184844556 nextloc Dune__exe__Testproto@examples/testproto.ml:28:10-35 nextloc Dune__exe__Testproto.allocate_list1@examples/testproto.ml:6:31-51
+0000005521 0000000001 alloc 1 len=2    2:loc_code: $2184844556 nextloc Dune__exe__Testproto@examples/testproto.ml:28:10-35 nextloc Dune__exe__Testproto.allocate_list1@examples/testproto.ml:6:30-59
+0000006968 0000000000 promote
+0000006969 0000000001 promote
+0000019689 0000000002 alloc 1 len=2    2:loc_code: $2184844556 nextloc Dune__exe__Testproto@examples/testproto.ml:28:10-35 nextloc Dune__exe__Testproto.allocate_list1@examples/testproto.ml:6:31-51
+0000021241 0000000002 promote
+0000045532 0000000003 alloc 1 len=2    3:loc_code: $2184844556 nextloc Dune__exe__Testproto@examples/testproto.ml:28:10-35 nextloc Dune__exe__Testproto.allocate_list1@examples/testproto.ml:6:31-51
+0000047078 0000000003 promote
+0000059571 0000000000 collect
+0000059572 0000000001 collect
+0000059572 0000000002 collect
+0000059572 0000000003 collect
+0000066930 0000000004 alloc 1 len=2    1:loc_code: $2184844556 nextloc Dune__exe__Testproto@examples/testproto.ml:33:11-36 nextloc Dune__exe__Testproto.allocate_list2@examples/testproto.ml:10:31-51
+0000068183 0000000004 promote
+0000068825 0000000005 alloc 1 len=2    2:loc_code: $2184844556 nextloc Dune__exe__Testproto@examples/testproto.ml:33:11-36 nextloc Dune__exe__Testproto.allocate_list2@examples/testproto.ml:10:30-59
+0000070626 0000000005 promote
+0000074294 0000000006 alloc 1 len=1    2:loc_code: $2184844556 nextloc Dune__exe__Testproto@examples/testproto.ml:33:11-36 nextloc Dune__exe__Testproto.allocate_list2@examples/testproto.ml:10:35-50 nextloc Stdlib.string_of_int@stdlib.ml:266:2-19
+0000075471 0000000006 promote
+0000086039 0000000007 alloc 1 len=2    2:loc_code: $2184844556 nextloc Dune__exe__Testproto@examples/testproto.ml:33:11-36 nextloc Dune__exe__Testproto.allocate_list2@examples/testproto.ml:10:30-59
+0000086413 0000000008 alloc 1 len=2    3:loc_code: $2184844556 nextloc Dune__exe__Testproto@examples/testproto.ml:33:11-36 nextloc Dune__exe__Testproto.allocate_list2@examples/testproto.ml:10:30-59
+0000087813 0000000007 promote
+0000087813 0000000008 promote
+0000088753 0000000004 collect
+0000088753 0000000005 collect
+0000088753 0000000006 collect
+0000088753 0000000007 collect
+0000088753 0000000008 collect
